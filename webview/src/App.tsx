@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import MarkdownBlock from './components/MarkdownBlock';
 import HistoryView from './components/history/HistoryView';
@@ -75,6 +75,8 @@ const App = () => {
   const [showNewSessionConfirm, setShowNewSessionConfirm] = useState(false);
   const [showInterruptConfirm, setShowInterruptConfirm] = useState(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  // 记录用户手动关闭的toast消息（message+type组合），避免再次显示
+  const dismissedToastsRef = useRef<Set<string>>(new Set());
 
   // 权限弹窗状态
   const [permissionDialogOpen, setPermissionDialogOpen] = useState(false);
@@ -215,17 +217,45 @@ const App = () => {
   }, [currentProvider, selectedClaudeModel, selectedCodexModel]);
 
   // Toast helper functions
-  const addToast = (message: string, type: ToastMessage['type'] = 'info') => {
+  const clearToasts = useCallback(() => {
+    // 清空所有toast并重置已关闭记录（用于新会话）
+    dismissedToastsRef.current.clear();
+    setToasts([]);
+  }, []);
+
+  const addToast = useCallback((message: string, type: ToastMessage['type'] = 'info') => {
     // Don't show toast for default status
     if (message === DEFAULT_STATUS || !message) return;
 
-    const id = `toast-${Date.now()}-${Math.random()}`;
-    setToasts((prev) => [...prev, { id, message, type }]);
-  };
+    const toastKey = `${message}|${type}`;
 
-  const dismissToast = (id: string) => {
-    setToasts((prev) => prev.filter((toast) => toast.id !== id));
-  };
+    // 如果用户已经手动关闭过这个toast，不再显示
+    if (dismissedToastsRef.current.has(toastKey)) {
+      return;
+    }
+
+    // Check if a toast with the same message and type already exists
+    setToasts((prev) => {
+      const exists = prev.some(toast => toast.message === message && toast.type === type);
+      if (exists) {
+        return prev; // Don't add duplicate
+      }
+      const id = `toast-${Date.now()}-${Math.random()}`;
+      return [...prev, { id, message, type }];
+    });
+  }, []);
+
+  const dismissToast = useCallback((id: string) => {
+    // 记录被关闭的toast，避免再次显示
+    setToasts((prev) => {
+      const toast = prev.find(t => t.id === id);
+      if (toast) {
+        const toastKey = `${toast.message}|${toast.type}`;
+        dismissedToastsRef.current.add(toastKey);
+      }
+      return prev.filter((toast) => toast.id !== id);
+    });
+  }, []);
 
   useEffect(() => {
     window.updateMessages = (json) => {
@@ -543,6 +573,9 @@ const App = () => {
       return;
     }
 
+    // 清除已关闭记录，允许新的错误显示（但不清空当前显示的toast）
+    dismissedToastsRef.current.clear();
+
     // 构建用户消息的内容块（用于前端显示）
     const userContentBlocks: ClaudeContentBlock[] = [];
 
@@ -672,6 +705,8 @@ const App = () => {
     setShowNewSessionConfirm(false);
     sendBridgeMessage('create_new_session');
     setMessages([]);
+    // 清空所有 toast 通知（包括之前的错误提示）
+    clearToasts();
     // 移除通知：正在创建新会话...
     // 重置使用量显示为 0%
     setUsagePercentage(0);
@@ -691,6 +726,8 @@ const App = () => {
     // 直接创建新会话，不再弹出第二个确认框
     sendBridgeMessage('create_new_session');
     setMessages([]);
+    // 清空所有 toast 通知（包括之前的错误提示）
+    clearToasts();
     setUsagePercentage(0);
     setUsageUsedTokens(0);
     setUsageMaxTokens((prev) => prev ?? 272000);

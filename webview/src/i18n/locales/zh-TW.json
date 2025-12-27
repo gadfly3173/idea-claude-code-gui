@@ -47,7 +47,25 @@
     "imagePreview": "預覽",
     "context": "上下文",
     "usage": "上下文",
-    "usagePercentage": "上下文: {{percentage}}"
+    "usagePercentage": "上下文: {{percentage}}",
+    "fileChooser": {
+      "title": "選擇檔案",
+      "description": "選擇要新增為附件的檔案"
+    },
+    "errors": {
+      "cannotOpenFile": "無法開啟檔案：{{reason}}",
+      "fileNotExists": "檔案不存在 ({{path}})",
+      "cannotReadFile": "無法讀取檔案：{{error}}"
+    },
+    "commands": {
+      "help": "顯示說明資訊",
+      "clear": "清除對話歷史",
+      "new": "建立新會話",
+      "history": "檢視歷史",
+      "model": "切換模型",
+      "settings": "開啟設定",
+      "compact": "精簡對話內容"
+    }
   },
   "settings": {
     "title": "設定",
@@ -85,6 +103,11 @@
         "level4": "較大（110%）",
         "level5": "大（120%）",
         "level6": "最大（140%）"
+      },
+      "workingDirectory": {
+        "label": "工作目錄",
+        "placeholder": "例如 project1 或留空以使用專案根目錄",
+        "hint": "指定 Claude 工作的目錄。可使用相對路徑（相對於專案根目錄）或絕對路徑。留空以使用專案根目錄。"
       }
     },
     "providers": "供應商管理",
@@ -192,7 +215,8 @@
         "hideApiKey": "隱藏",
         "confirmAdd": "確認新增",
         "saveChanges": "儲存變更"
-      }
+      },
+      "importFromCcSwitchFile": "選擇 cc-switch.db 檔案以匯入"
     },
     "comingSoon": "功能即將推出...",
     "permissionsComingSoon": "權限配置功能即將推出...",
@@ -248,7 +272,8 @@
     "deleteSuccess": "刪除成功",
     "operationFailed": "操作失敗",
     "copySuccess": "{{label}}已複製到剪貼簿",
-    "copyFailed": "複製失敗"
+    "copyFailed": "複製失敗",
+    "configLoading": "正在載入設定，請重試"
   },
   "config": {
     "clickToCopy": "點選複製",
@@ -338,7 +363,8 @@
       "memory": "Knowledge graph and memory storage tool",
       "sequentialThinking": "Sequential thinking and reasoning tool",
       "context7": "Document search and context retrieval tool"
-    }
+    },
+    "url": "URL"
   },
   "tools": {
     "toolCall": "工具調用",
@@ -371,34 +397,34 @@
     "editPrefix": "編輯: {{fileName}}"
   },
   "skills": {
-    "title": "Skills",
+    "title": "技能",
     "all": "全部",
     "global": "全局",
     "local": "本項目",
-    "filterEnabled": "Filter enabled Skills",
-    "enabled": "Enabled",
-    "filterDisabled": "Filter disabled Skills",
-    "disabled": "Disabled",
-    "searchPlaceholder": "Search Skills...",
-    "whatIsSkills": "What are Skills?",
-    "importSkill": "Import Skill",
-    "importGlobalSkill": "Import Global Skill",
-    "importLocalSkill": "Import Local Skill",
+    "filterEnabled": "篩選啟用的技能",
+    "enabled": "啟用",
+    "filterDisabled": "篩選停用的技能",
+    "disabled": "停用",
+    "searchPlaceholder": "搜尋技能...",
+    "whatIsSkills": "什麼是技能?",
+    "importSkill": "匯入技能",
+    "importGlobalSkill": "匯入全局技能",
+    "importLocalSkill": "匯入本項目技能",
     "description": "描述",
     "noDescription": "暫無描述",
-    "noSkills": "No Skills",
-    "importHint": "Click + button to import Skill file or folder",
-    "deleteTitle": "Delete Skill",
-    "deleteMessage": "Are you sure you want to delete {{scope}} Skill \"{{name}}\"?\n\nThis action cannot be undone.",
-    "deleteMessageGlobal": "global",
-    "deleteMessageLocal": "local",
-    "importSuccess": "Successfully imported {{count}} Skills",
-    "importSuccessOne": "Successfully imported 1 Skill",
-    "importPartialSuccess": "Successfully imported {{count}}/{{total}} Skills, some failed",
-    "importFailed": "Failed to import Skill",
-    "deleteSuccess": "Successfully deleted Skill",
-    "toggleSuccess": "Updated Skill status",
-    "toggleFailed": "Failed to update Skill status"
+    "noSkills": "暫無技能",
+    "importHint": "點擊 + 按鈕匯入技能檔案或資料夾",
+    "deleteTitle": "刪除技能",
+    "deleteMessage": "確定要刪除{{scope}}技能\"{{name}}\"嗎？\n\n此操作無法撤銷。",
+    "deleteMessageGlobal": "全局",
+    "deleteMessageLocal": "本項目",
+    "importSuccess": "已成功匯入 {{count}} 個技能",
+    "importSuccessOne": "已成功匯入 1 個技能",
+    "importPartialSuccess": "成功匯入 {{count}}/{{total}} 個技能，部分失敗",
+    "importFailed": "匯入技能失敗",
+    "deleteSuccess": "已成功刪除技能",
+    "toggleSuccess": "已更新技能狀態",
+    "toggleFailed": "更新技能狀態失敗"
   },
   "models": {
     "claude": {
@@ -414,6 +440,64 @@
         "label": "Haiku 4.5",
         "description": "Haiku 4.5 · 速度最快，適合快速回覆"
       }
+    },
+    "codex": {
+      "gpt51codex": {
+        "label": "gpt-5.1-codex",
+        "description": "針對 codex 進行了最佳化"
+      },
+      "gpt51codexMini": {
+        "label": "gpt-5.1-codex-mini",
+        "description": "針對 codex 進行了最佳化。更便宜、更快，但性能較差"
+      },
+      "gpt51": {
+        "label": "gpt-5.1",
+        "description": "具有廣泛的世界知識和強大的一般推理能力"
+      }
     }
+  },
+  "modes": {
+    "default": {
+      "label": "預設模式",
+      "tooltip": "標準權限行為",
+      "description": "需要手動確認每個操作，適合謹慎使用"
+    },
+    "plan": {
+      "label": "規劃模式",
+      "tooltip": "規劃模式——無執行（暫不支援）",
+      "description": "僅規劃不執行，暫不支援"
+    },
+    "acceptEdits": {
+      "label": "代理模式",
+      "tooltip": "自動接受檔案編輯",
+      "description": "自動接受檔案建立/編輯，減少確認步驟"
+    },
+    "bypassPermissions": {
+      "label": "自動模式",
+      "tooltip": "繞過所有權限檢查",
+      "description": "完全自動化，繞過所有權限檢查【謹慎使用】"
+    }
+  },
+  "providers": {
+    "claude": {
+      "label": "Claude Code"
+    },
+    "codex": {
+      "label": "Codex Cli"
+    },
+    "gemini": {
+      "label": "Gemini Cli"
+    }
+  },
+  "filePicker": {
+    "addFromDiskTitle": "從磁碟新增檔案",
+    "addFromDisk": "從磁碟新增...",
+    "searchPlaceholder": "搜尋專案檔案...",
+    "clearSearch": "清除搜尋",
+    "searchResults": "搜尋結果",
+    "searching": "搜尋中...",
+    "noMatches": "無相符檔案",
+    "openFiles": "開啟的檔案",
+    "noOpenFiles": "沒有開啟的檔案"
   }
 }

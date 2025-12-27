@@ -154,43 +154,27 @@ export const ChatInputBox = ({
   const getTextContent = useCallback(() => {
     if (!editableRef.current) return '';
 
-    // 从 DOM 中提取纯文本，包括文件标签的原始引用格式
     let text = '';
 
-    // 优化：使用 TreeWalker 替代递归，性能更好
-    const walker = document.createTreeWalker(
-      editableRef.current,
-      NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT,
-      {
-        acceptNode: (node) => {
-          if (node.nodeType === Node.TEXT_NODE) {
-            return NodeFilter.FILTER_ACCEPT;
-          }
-          if (node.nodeType === Node.ELEMENT_NODE) {
-            const element = node as HTMLElement;
-            if (element.classList.contains('file-tag')) {
-              return NodeFilter.FILTER_ACCEPT;
-            }
-          }
-          return NodeFilter.FILTER_SKIP;
-        }
-      }
-    );
-
-    let node: Node | null;
-    while ((node = walker.nextNode())) {
+    const walk = (node: Node) => {
       if (node.nodeType === Node.TEXT_NODE) {
         text += node.textContent || '';
-      } else if (node.nodeType === Node.ELEMENT_NODE) {
+        return;
+      }
+      if (node.nodeType === Node.ELEMENT_NODE) {
         const element = node as HTMLElement;
+        // 碰到 file-tag 时仅追加其 data-file-path，对应子节点（文件名、关闭按钮）全部跳过，避免重复
         if (element.classList.contains('file-tag')) {
           const filePath = element.getAttribute('data-file-path') || '';
           text += `@${filePath}`;
+          return;
         }
+        element.childNodes.forEach(walk);
       }
-    }
+    };
 
-    // 去除末尾的换行符（\n, \r, \r\n）
+    editableRef.current.childNodes.forEach(walk);
+
     return text.replace(/[\r\n]+$/, '');
   }, []);
 
@@ -252,6 +236,9 @@ export const ChatInputBox = ({
     if (!hasUnrenderedReferences) {
       return;
     }
+
+    // 保存当前光标位置（相对于文本内容）
+    const savedCursorPosition = getCursorPosition(editableRef.current);
 
     // 构建新的 HTML 内容
     let newHTML = '';
@@ -341,20 +328,96 @@ export const ChatInputBox = ({
       });
     });
 
-    // 恢复光标位置到末尾
+    // 恢复光标位置
     const selection = window.getSelection();
     if (selection && editableRef.current.childNodes.length > 0) {
       try {
+        // 尝试恢复到保存的位置
         const range = document.createRange();
-        const lastChild = editableRef.current.lastChild;
-        if (lastChild) {
-          range.setStartAfter(lastChild);
+
+        // 计算新的文本内容长度
+        const newTextContent = getTextContent();
+        const targetPosition = Math.min(savedCursorPosition, newTextContent.length);
+
+        // 查找目标位置对应的 DOM 节点和偏移
+        let currentPosition = 0;
+        let targetNode: Node | null = null;
+        let targetOffset = 0;
+        let found = false;
+
+        const findPosition = (node: Node): boolean => {
+          if (found) return true;
+
+          if (node.nodeType === Node.TEXT_NODE) {
+            const textLength = node.textContent?.length || 0;
+            if (currentPosition + textLength >= targetPosition) {
+              targetNode = node;
+              targetOffset = targetPosition - currentPosition;
+              found = true;
+              return true;
+            }
+            currentPosition += textLength;
+          } else if (node.nodeType === Node.ELEMENT_NODE) {
+            const el = node as HTMLElement;
+            if (el.classList.contains('file-tag')) {
+              const filePath = el.getAttribute('data-file-path') || '';
+              const tagLength = filePath.length + 1; // @ + path
+              if (currentPosition + tagLength >= targetPosition) {
+                // 光标在文件标签内，将其放在标签后
+                targetNode = el;
+                targetOffset = 0;
+                found = true;
+                return true;
+              }
+              currentPosition += tagLength;
+            } else {
+              for (const child of Array.from(node.childNodes)) {
+                if (findPosition(child)) return true;
+              }
+            }
+          }
+          return false;
+        };
+
+        for (const child of Array.from(editableRef.current.childNodes)) {
+          if (findPosition(child)) break;
+        }
+
+        if (targetNode) {
+          const tn = targetNode as Node;
+          if (tn.nodeType === Node.TEXT_NODE) {
+            range.setStart(tn, targetOffset);
+          } else {
+            // 元素节点，将光标设置在其后
+            range.setStartAfter(targetNode);
+          }
           range.collapse(true);
           selection.removeAllRanges();
           selection.addRange(range);
+        } else {
+          // 如果找不到目标位置，将光标设置在末尾
+          const lastChild = editableRef.current.lastChild;
+          if (lastChild) {
+            range.setStartAfter(lastChild);
+            range.collapse(true);
+            selection.removeAllRanges();
+            selection.addRange(range);
+          }
         }
       } catch (e) {
-        // 忽略光标恢复错误
+        // 忽略光标恢复错误，尝试将光标放在末尾
+        try {
+          const range = document.createRange();
+          const lastChild = editableRef.current.lastChild;
+          if (lastChild) {
+            range.setStartAfter(lastChild);
+            range.collapse(true);
+            selection.removeAllRanges();
+            selection.addRange(range);
+          }
+        } catch (e2) {
+          // 完全忽略
+        }
       }
     }
 
@@ -363,7 +426,7 @@ export const ChatInputBox = ({
     setTimeout(() => {
       justRenderedTagRef.current = false;
     }, 0);
-  }, [fileCompletion, commandCompletion, escapeHtmlAttr, getTextContent]);
+  }, [fileCompletion, commandCompletion, escapeHtmlAttr, getTextContent, getCursorPosition]);
 
   // Tooltip 状态
   const [tooltip, setTooltip] = useState<{
@@ -1318,6 +1381,25 @@ export const ChatInputBox = ({
   }, [externalAttachments, onAddAttachment, generateId]);
 
   /**
+   * 从 Java 添加附件（已经是 base64 格式）
+   */
+  const handleAddAttachmentFromJava = useCallback((attachmentJson: string) => {
+    try {
+      const attachment: Attachment = JSON.parse(attachmentJson);
+      if (externalAttachments !== undefined) {
+        // 如果使用外部状态，需要转换为 FileList
+        // 但这里我们直接使用内部状态更简单
+        setInternalAttachments(prev => [...prev, attachment]);
+      } else {
+        setInternalAttachments(prev => [...prev, attachment]);
+      }
+      console.log('[ChatInputBox] Attachment added from Java:', attachment.fileName);
+    } catch (error) {
+      console.error('[ChatInputBox] Failed to parse attachment from Java:', error);
+    }
+  }, [externalAttachments]);
+
+  /**
    * 处理移除附件
    */
   const handleRemoveAttachment = useCallback((id: string) => {
@@ -1355,35 +1437,53 @@ export const ChatInputBox = ({
     (window as any).handleFilePathFromJava = (filePath: string) => {
       if (!editableRef.current) return;
 
-      // 插入文件路径到输入框（自动添加 @ 前缀）
+      // 插入文件路径到输入框（自动添加 @ 前缀和空格）
       const pathToInsert = filePath.startsWith('@') ? filePath : `@${filePath}`;
+      const pathWithSpace = `${pathToInsert} `;
 
       const selection = window.getSelection();
+      let range: Range | null = null;
+
+      // 如果当前选区在输入框内，优先使用选区；若落在 file-tag 内则移到标签后再插入
       if (selection && selection.rangeCount > 0 && editableRef.current.contains(selection.anchorNode)) {
-        // 光标在输入框内，在光标位置插入
-        const range = selection.getRangeAt(0);
-        range.deleteContents();
-        const textNode = document.createTextNode(pathToInsert);
-        range.insertNode(textNode);
+        const activeRange = selection.getRangeAt(0).cloneRange();
+        const anchorNode = selection.anchorNode as Node;
+        const fileTag = (anchorNode.nodeType === Node.ELEMENT_NODE
+          ? (anchorNode as HTMLElement).closest('.file-tag')
+          : anchorNode.parentElement?.closest('.file-tag'));
 
-        // 将光标移到插入文本后
-        range.setStartAfter(textNode);
-        range.collapse(true);
-        selection.removeAllRanges();
-        selection.addRange(range);
-      } else {
-        // 光标不在输入框内，追加到末尾
-        // 使用 appendChild 而不是 innerText，避免破坏已有的文件标签
-        const textNode = document.createTextNode(pathToInsert);
-        editableRef.current.appendChild(textNode);
-
-        // 将光标移到末尾
-        const range = document.createRange();
-        range.setStartAfter(textNode);
-        range.collapse(true);
-        selection?.removeAllRanges();
-        selection?.addRange(range);
+        if (fileTag) {
+          range = document.createRange();
+          range.setStartAfter(fileTag);
+          range.collapse(true);
+        } else {
+          range = activeRange;
+        }
       }
+
+      // 如果没有合适的选区，落点设置在末尾
+      if (!range) {
+        range = document.createRange();
+        range.selectNodeContents(editableRef.current);
+        range.collapse(false);
+      }
+
+      // 判断是否需要在前面补空格（避免粘连）
+      const currentText = getTextContent();
+      const cursorPos = getCursorPosition(editableRef.current);
+      const needsLeadingSpace = cursorPos > 0 && !/[\s\n]$/.test(currentText.slice(0, cursorPos));
+      const textToInsert = needsLeadingSpace ? ` ${pathWithSpace}` : pathWithSpace;
+
+      // 执行插入
+      range.deleteContents();
+      const textNode = document.createTextNode(textToInsert);
+      range.insertNode(textNode);
+
+      // 将光标移到插入文本后
+      range.setStartAfter(textNode);
+      range.collapse(true);
+      selection?.removeAllRanges();
+      selection?.addRange(range);
 
       // 关闭补全菜单
       fileCompletion.close();
@@ -1400,6 +1500,9 @@ export const ChatInputBox = ({
         renderFileTags();
       }, 50);
     };
+
+    // 注册全局函数以接收 Java 传递的附件
+    (window as any).addAttachmentFromJava = handleAddAttachmentFromJava;
 
     // 添加空格键监听以触发文件标签渲染
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -1419,8 +1522,9 @@ export const ChatInputBox = ({
       }
       delete (window as any).handleFilePathFromJava;
       delete (window as any).insertCodeSnippetAtCursor;
+      delete (window as any).addAttachmentFromJava;
     };
-  }, [focusInput, handlePaste, handleDrop, handleDragOver, getTextContent, handleKeyDownForTagRendering, renderFileTags, fileCompletion, commandCompletion, adjustHeight, onInput]);
+  }, [focusInput, handlePaste, handleDrop, handleDragOver, getTextContent, handleKeyDownForTagRendering, renderFileTags, fileCompletion, commandCompletion, adjustHeight, onInput, handleAddAttachmentFromJava]);
 
   // 注册全局方法：在光标位置插入代码片段
   useEffect(() => {

@@ -47,7 +47,25 @@
     "imagePreview": "Vista previa",
     "context": "Contexto",
     "usage": "Uso",
-    "usagePercentage": "Uso: {{percentage}}"
+    "usagePercentage": "Uso: {{percentage}}",
+    "fileChooser": {
+      "title": "Seleccionar archivo",
+      "description": "Selecciona un archivo para añadir como adjunto"
+    },
+    "errors": {
+      "cannotOpenFile": "No se puede abrir el archivo: {{reason}}",
+      "fileNotExists": "El archivo no existe ({{path}})",
+      "cannotReadFile": "No se puede leer el archivo: {{error}}"
+    },
+    "commands": {
+      "help": "Mostrar información de ayuda",
+      "clear": "Borrar historial de conversación",
+      "new": "Crear nueva sesión",
+      "history": "Ver historial",
+      "model": "Cambiar modelo",
+      "settings": "Abrir configuración",
+      "compact": "Contexto de conversación compacto"
+    }
   },
   "settings": {
     "title": "Configuración",
@@ -66,7 +84,7 @@
         "simplifiedChinese": "简体中文",
         "traditionalChinese": "繁體中文",
         "english": "English",
-        "hindi": "हिन्दी",
+        "hindi": "हिंदी",
         "spanish": "Español",
         "french": "Français"
       },
@@ -85,6 +103,11 @@
         "level4": "Más grande (110%)",
         "level5": "Grande (120%)",
         "level6": "Máximo (140%)"
+      },
+      "workingDirectory": {
+        "label": "Directorio de trabajo",
+        "placeholder": "ej. proyecto1 o dejar en blanco para usar raíz de proyecto",
+        "hint": "Especifica el directorio en el que Claude trabaja. Puede usar ruta relativa (relativa a raíz de proyecto) o ruta absoluta. Dejar en blanco para usar raíz de proyecto."
       }
     },
     "providers": "Gestión de proveedores",
@@ -109,8 +132,8 @@
       "noConfig": "Sin información de configuración",
       "emptyProvider": "Ningún proveedor configurado",
       "notConfigured": "No configurado",
-      "apiKey": "API Key",
-      "baseUrl": "Base URL",
+      "apiKey": "Clave API",
+      "baseUrl": "URL base",
       "provider": "Proveedor",
       "source": "Fuente",
       "show": "Mostrar",
@@ -158,7 +181,7 @@
         "selectedCount": "{{count}} elementos seleccionados",
         "confirmImport": "Confirmar importación"
       },
-      "deleteProviderMessage": "Are you sure you want to delete provider \"{{name}}\"?\n\nThis action cannot be undone.",
+      "deleteProviderMessage": "¿Estás seguro de que deseas eliminar el proveedor \"{{name}}\"?\n\nEsta acción no se puede deshacer.",
       "dialog": {
         "addTitle": "Añadir proveedor",
         "editTitle": "Editar proveedor: {{name}}",
@@ -168,7 +191,7 @@
         "providerNamePlaceholder": "ej., Claude Oficial",
         "remark": "Nota",
         "remarkPlaceholder": "Opcional",
-        "apiKey": "API Key",
+        "apiKey": "Clave API",
         "apiKeyPlaceholder": "sk-ant-...",
         "apiKeyHint": "Por favor ingrese su API Key",
         "apiUrl": "Dirección de solicitud (API Endpoint)",
@@ -192,7 +215,8 @@
         "hideApiKey": "Ocultar",
         "confirmAdd": "Confirmar añadir",
         "saveChanges": "Guardar cambios"
-      }
+      },
+      "importFromCcSwitchFile": "Seleccionar archivo cc-switch.db para importar"
     },
     "comingSoon": "Próximamente...",
     "permissionsComingSoon": "Configuración de permisos próximamente...",
@@ -242,13 +266,14 @@
   },
   "toast": {
     "switchSuccess": "Cambio exitoso",
-    "thinkingEnabled": "Thinking enabled",
-    "thinkingDisabled": "Thinking disabled",
+    "thinkingEnabled": "Pensamiento habilitado",
+    "thinkingDisabled": "Pensamiento deshabilitado",
     "saveSuccess": "Guardado exitoso",
     "deleteSuccess": "Eliminación exitosa",
     "operationFailed": "Operación fallida",
     "copySuccess": "{{label}} copiado al portapapeles",
-    "copyFailed": "Error al copiar"
+    "copyFailed": "Error al copiar",
+    "configLoading": "Configuración cargando, por favor intenta de nuevo"
   },
   "config": {
     "clickToCopy": "Haz clic para copiar",
@@ -333,12 +358,13 @@
     "linkCopied": "Enlace copiado, por favor abre en el navegador",
     "copyFailed": "Error al copiar, por favor copia manualmente",
     "presets": {
-      "fetch": "Web content fetching tool for scraping web pages",
-      "time": "Time and timezone utilities",
-      "memory": "Knowledge graph and memory storage tool",
-      "sequentialThinking": "Sequential thinking and reasoning tool",
-      "context7": "Document search and context retrieval tool"
-    }
+      "fetch": "Herramienta de búsqueda de contenido web para raspar páginas web",
+      "time": "Utilidades de hora y zona horaria",
+      "memory": "Herramienta de almacenamiento de gráfico de conocimiento y memoria",
+      "sequentialThinking": "Herramienta de pensamiento secuencial y razonamiento",
+      "context7": "Herramienta de búsqueda de documentos y recuperación de contexto"
+    },
+    "url": "URL"
   },
   "tools": {
     "toolCall": "Llamada de herramienta",
@@ -371,34 +397,34 @@
     "editPrefix": "Editar: {{fileName}}"
   },
   "skills": {
-    "title": "Skills",
+    "title": "Habilidades",
     "all": "Todos",
     "global": "Global",
     "local": "Local",
-    "filterEnabled": "Filter enabled Skills",
-    "enabled": "Enabled",
-    "filterDisabled": "Filter disabled Skills",
-    "disabled": "Disabled",
-    "searchPlaceholder": "Search Skills...",
-    "whatIsSkills": "What are Skills?",
-    "importSkill": "Import Skill",
-    "importGlobalSkill": "Import Global Skill",
-    "importLocalSkill": "Import Local Skill",
-    "description": "Description",
-    "noDescription": "No description",
-    "noSkills": "No Skills",
-    "importHint": "Click + button to import Skill file or folder",
-    "deleteTitle": "Delete Skill",
-    "deleteMessage": "Are you sure you want to delete {{scope}} Skill \"{{name}}\"?\n\nThis action cannot be undone.",
+    "filterEnabled": "Filtrar Skills habilitados",
+    "enabled": "Habilitado",
+    "filterDisabled": "Filtrar Skills deshabilitados",
+    "disabled": "Deshabilitado",
+    "searchPlaceholder": "Buscar Skills...",
+    "whatIsSkills": "¿Qué son los Skills?",
+    "importSkill": "Importar Skill",
+    "importGlobalSkill": "Importar Skill Global",
+    "importLocalSkill": "Importar Skill Local",
+    "description": "Descripción",
+    "noDescription": "Sin descripción",
+    "noSkills": "Sin Skills",
+    "importHint": "Haz clic en el botón + para importar archivo o carpeta Skill",
+    "deleteTitle": "Eliminar Skill",
+    "deleteMessage": "¿Estás seguro de que deseas eliminar {{scope}} Skill \"{{name}}\"?\n\nEsta acción no se puede deshacer.",
     "deleteMessageGlobal": "global",
     "deleteMessageLocal": "local",
-    "importSuccess": "Successfully imported {{count}} Skills",
-    "importSuccessOne": "Successfully imported 1 Skill",
-    "importPartialSuccess": "Successfully imported {{count}}/{{total}} Skills, some failed",
-    "importFailed": "Failed to import Skill",
-    "deleteSuccess": "Successfully deleted Skill",
-    "toggleSuccess": "Updated Skill status",
-    "toggleFailed": "Failed to update Skill status"
+    "importSuccess": "Se han importado {{count}} Skills correctamente",
+    "importSuccessOne": "Se ha importado 1 Skill correctamente",
+    "importPartialSuccess": "Se han importado {{count}}/{{total}} Skills correctamente, algunos fallaron",
+    "importFailed": "Error al importar Skill",
+    "deleteSuccess": "Se ha eliminado el Skill correctamente",
+    "toggleSuccess": "Estado de Skill actualizado",
+    "toggleFailed": "Error al actualizar el estado de Skill"
   },
   "models": {
     "claude": {
@@ -414,6 +440,64 @@
         "label": "Haiku 4.5",
         "description": "Haiku 4.5 · El más rápido para respuestas rápidas"
       }
+    },
+    "codex": {
+      "gpt51codex": {
+        "label": "gpt-5.1-codex",
+        "description": "Optimizado para codex"
+      },
+      "gpt51codexMini": {
+        "label": "gpt-5.1-codex-mini",
+        "description": "Optimizado para codex. Más barato y rápido, pero con menor rendimiento"
+      },
+      "gpt51": {
+        "label": "gpt-5.1",
+        "description": "Amplio conocimiento del mundo y sólidas capacidades de razonamiento general"
+      }
     }
+  },
+  "modes": {
+    "default": {
+      "label": "Modo Predeterminado",
+      "tooltip": "Comportamiento de permisos estándar",
+      "description": "Requiere confirmación manual para cada operación, adecuado para uso cauteloso"
+    },
+    "plan": {
+      "label": "Modo Planificación",
+      "tooltip": "Modo de planificación - Sin ejecución (no soportado aún)",
+      "description": "Solo planificación sin ejecución, no soportado aún"
+    },
+    "acceptEdits": {
+      "label": "Modo Agente",
+      "tooltip": "Aceptar automáticamente ediciones de archivos",
+      "description": "Aceptar automáticamente creación/edición de archivos, reduciendo pasos de confirmación"
+    },
+    "bypassPermissions": {
+      "label": "Modo Automático",
+      "tooltip": "Omitir todos los controles de permisos",
+      "description": "Totalmente automatizado, omitiendo todos los controles de permisos [Usar con cuidado]"
+    }
+  },
+  "providers": {
+    "claude": {
+      "label": "Claude Code"
+    },
+    "codex": {
+      "label": "Codex Cli"
+    },
+    "gemini": {
+      "label": "Gemini Cli"
+    }
+  },
+  "filePicker": {
+    "addFromDiskTitle": "Añadir archivo desde disco",
+    "addFromDisk": "Añadir desde disco...",
+    "searchPlaceholder": "Buscar archivos del proyecto...",
+    "clearSearch": "Limpiar búsqueda",
+    "searchResults": "Resultados de búsqueda",
+    "searching": "Buscando...",
+    "noMatches": "Sin archivos coincidentes",
+    "openFiles": "Archivos Abiertos",
+    "noOpenFiles": "Sin archivos abiertos"
   }
 }

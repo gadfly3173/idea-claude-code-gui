@@ -8,7 +8,10 @@
     "prebuild": "node scripts/extract-version.mjs",
     "build": "tsc && vite build",
     "postbuild": "node scripts/copy-dist.mjs",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "check-localization": "node ../scripts/check-localization.js",
+    "check-localization:strict": "node ../scripts/check-localization.js --strict",
+    "check-localization:json": "node ../scripts/check-localization.js --json"
   },
   "devDependencies": {
     "@types/react": "^19.2.6",

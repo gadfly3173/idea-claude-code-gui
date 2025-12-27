@@ -47,7 +47,25 @@
     "imagePreview": "पूर्वावलोकन",
     "context": "संदर्भ",
     "usage": "उपयोग",
-    "usagePercentage": "उपयोग: {{percentage}}"
+    "usagePercentage": "उपयोग: {{percentage}}",
+    "fileChooser": {
+      "title": "फ़ाइल चुनें",
+      "description": "अटैचमेंट के रूप में जोड़ने के लिए एक फ़ाइल चुनें"
+    },
+    "errors": {
+      "cannotOpenFile": "फ़ाइल नहीं खोल सकते: {{reason}}",
+      "fileNotExists": "फ़ाइल मौजूद नहीं है ({{path}})",
+      "cannotReadFile": "फ़ाइल नहीं पढ़ सकते: {{error}}"
+    },
+    "commands": {
+      "help": "सहायता जानकारी दिखाएं",
+      "clear": "वार्तालाप इतिहास साफ़ करें",
+      "new": "नया सत्र बनाएं",
+      "history": "इतिहास देखें",
+      "model": "मॉडल स्विच करें",
+      "settings": "सेटिंग्स खोलें",
+      "compact": "कॉम्पैक्ट वार्तालाप संदर्भ"
+    }
   },
   "settings": {
     "title": "सेटिंग्स",
@@ -85,6 +103,11 @@
         "level4": "बड़ा (110%)",
         "level5": "अधिक बड़ा (120%)",
         "level6": "सबसे बड़ा (140%)"
+      },
+      "workingDirectory": {
+        "label": "कार्यशील निर्देशिका",
+        "placeholder": "जैसे project1 या प्रोजेक्ट रूट का उपयोग करने के लिए खाली छोड़ें",
+        "hint": "वह निर्देशिका निर्दिष्ट करें जहां Claude काम करता है। सापेक्ष पथ (प्रोजेक्ट रूट के सापेक्ष) या पूर्ण पथ का उपयोग कर सकते हैं। प्रोजेक्ट रूट का उपयोग करने के लिए खाली छोड़ें।"
       }
     },
     "providers": "प्रदाता प्रबंधन",
@@ -192,7 +215,8 @@
         "hideApiKey": "छुपाएं",
         "confirmAdd": "जोड़ने की पुष्टि करें",
         "saveChanges": "परिवर्तन सहेजें"
-      }
+      },
+      "importFromCcSwitchFile": "आयात करने के लिए cc-switch.db फ़ाइल चुनें"
     },
     "comingSoon": "सुविधा जल्द आ रही है...",
     "permissionsComingSoon": "अनुमति कॉन्फ़िगरेशन सुविधा जल्द आ रही है...",
@@ -248,7 +272,8 @@
     "deleteSuccess": "हटाना सफल",
     "operationFailed": "ऑपरेशन विफल",
     "copySuccess": "{{label}} क्लिपबोर्ड पर कॉपी किया गया",
-    "copyFailed": "कॉपी विफल"
+    "copyFailed": "कॉपी विफल",
+    "configLoading": "कॉन्फ़िगरेशन लोड हो रहा है, कृपया फिर से प्रयास करें"
   },
   "config": {
     "clickToCopy": "कॉपी करने के लिए क्लिक करें",
@@ -338,7 +363,8 @@
       "memory": "Knowledge graph and memory storage tool",
       "sequentialThinking": "Sequential thinking and reasoning tool",
       "context7": "Document search and context retrieval tool"
-    }
+    },
+    "url": "URL"
   },
   "tools": {
     "toolCall": "उपकरण कॉल",
@@ -371,34 +397,34 @@
     "editPrefix": "संपादित करें: {{fileName}}"
   },
   "skills": {
-    "title": "Skills",
-    "all": "All",
-    "global": "Global",
-    "local": "Local",
-    "filterEnabled": "Filter enabled Skills",
-    "enabled": "Enabled",
-    "filterDisabled": "Filter disabled Skills",
-    "disabled": "Disabled",
-    "searchPlaceholder": "Search Skills...",
-    "whatIsSkills": "What are Skills?",
-    "importSkill": "Import Skill",
-    "importGlobalSkill": "Import Global Skill",
-    "importLocalSkill": "Import Local Skill",
-    "description": "Description",
-    "noDescription": "No description",
-    "noSkills": "No Skills",
-    "importHint": "Click + button to import Skill file or folder",
-    "deleteTitle": "Delete Skill",
-    "deleteMessage": "Are you sure you want to delete {{scope}} Skill \"{{name}}\"?\n\nThis action cannot be undone.",
-    "deleteMessageGlobal": "global",
-    "deleteMessageLocal": "local",
-    "importSuccess": "Successfully imported {{count}} Skills",
-    "importSuccessOne": "Successfully imported 1 Skill",
-    "importPartialSuccess": "Successfully imported {{count}}/{{total}} Skills, some failed",
-    "importFailed": "Failed to import Skill",
-    "deleteSuccess": "Successfully deleted Skill",
-    "toggleSuccess": "Updated Skill status",
-    "toggleFailed": "Failed to update Skill status"
+    "title": "कौशल",
+    "all": "सभी",
+    "global": "वैश्विक",
+    "local": "स्थानीय",
+    "filterEnabled": "सक्षम कौशल फ़िल्टर करें",
+    "enabled": "सक्षम",
+    "filterDisabled": "अक्षम कौशल फ़िल्टर करें",
+    "disabled": "अक्षम",
+    "searchPlaceholder": "कौशल खोजें...",
+    "whatIsSkills": "कौशल क्या हैं?",
+    "importSkill": "कौशल आयात करें",
+    "importGlobalSkill": "वैश्विक कौशल आयात करें",
+    "importLocalSkill": "स्थानीय कौशल आयात करें",
+    "description": "विवरण",
+    "noDescription": "कोई विवरण नहीं",
+    "noSkills": "कोई कौशल नहीं",
+    "importHint": "कौशल फ़ाइल या फ़ोल्डर आयात करने के लिए + बटन क्लिक करें",
+    "deleteTitle": "कौशल हटाएं",
+    "deleteMessage": "क्या आप {{scope}} कौशल \"{{name}}\" को हटाना चाहते हैं?\n\nयह कार्रवाई पूर्ववत नहीं की जा सकती।",
+    "deleteMessageGlobal": "वैश्विक",
+    "deleteMessageLocal": "स्थानीय",
+    "importSuccess": "{{count}} कौशल सफलतापूर्वक आयात किए गए",
+    "importSuccessOne": "1 कौशल सफलतापूर्वक आयात किया गया",
+    "importPartialSuccess": "{{count}}/{{total}} कौशल सफलतापूर्वक आयात किए गए, कुछ विफल रहे",
+    "importFailed": "कौशल आयात विफल",
+    "deleteSuccess": "कौशल सफलतापूर्वक हटा दिया गया",
+    "toggleSuccess": "कौशल स्थिति अपडेट की गई",
+    "toggleFailed": "कौशल स्थिति अपडेट विफल"
   },
   "models": {
     "claude": {
@@ -414,6 +440,64 @@
         "label": "Haiku 4.5",
         "description": "Haiku 4.5 · सबसे तेज़, त्वरित उत्तरों के लिए उपयुक्त"
       }
+    },
+    "codex": {
+      "gpt51codex": {
+        "label": "gpt-5.1-codex",
+        "description": "कोडेक्स के लिए अनुकूलित"
+      },
+      "gpt51codexMini": {
+        "label": "gpt-5.1-codex-mini",
+        "description": "कोडेक्स के लिए अनुकूलित। सस्ता और तेज़, लेकिन कम प्रदर्शन"
+      },
+      "gpt51": {
+        "label": "gpt-5.1",
+        "description": "व्यापक विश्व ज्ञान और मजबूत सामान्य तर्क क्षमताएं"
+      }
     }
+  },
+  "modes": {
+    "default": {
+      "label": "डिफ़ॉल्ट मोड",
+      "tooltip": "मानक अनुमति व्यवहार",
+      "description": "प्रत्येक ऑपरेशन के लिए मैनुअल पुष्टि की आवश्यकता है, सावधान उपयोग के लिए उपयुक्त"
+    },
+    "plan": {
+      "label": "योजना मोड",
+      "tooltip": "योजना मोड - कोई निष्पादन नहीं (अभी समर्थित नहीं)",
+      "description": "केवल योजना, कोई निष्पादन नहीं, अभी समर्थित नहीं"
+    },
+    "acceptEdits": {
+      "label": "एजेंट मोड",
+      "tooltip": "फ़ाइल संपादन स्वचालित रूप से स्वीकार करें",
+      "description": "फ़ाइल निर्माण/संपादन स्वचालित रूप से स्वीकार करें, पुष्टि चरणों को कम करता है"
+    },
+    "bypassPermissions": {
+      "label": "ऑटो मोड",
+      "tooltip": "सभी अनुमति जांच को दरकिनार करें",
+      "description": "पूरी तरह से स्वचालित, सभी अनुमति जांच को दरकिनार करता है [सावधानी से उपयोग करें]"
+    }
+  },
+  "providers": {
+    "claude": {
+      "label": "Claude Code"
+    },
+    "codex": {
+      "label": "Codex Cli"
+    },
+    "gemini": {
+      "label": "Gemini Cli"
+    }
+  },
+  "filePicker": {
+    "addFromDiskTitle": "डिस्क से फ़ाइल जोड़ें",
+    "addFromDisk": "डिस्क से जोड़ें...",
+    "searchPlaceholder": "प्रोजेक्ट फ़ाइलें खोजें...",
+    "clearSearch": "खोज साफ़ करें",
+    "searchResults": "खोज परिणाम",
+    "searching": "खोज जारी है...",
+    "noMatches": "कोई मेल खाने वाली फ़ाइलें नहीं",
+    "openFiles": "खुली फ़ाइलें",
+    "noOpenFiles": "कोई खुली फ़ाइलें नहीं"
   }
 }

@@ -156,9 +156,9 @@ function detectAtTrigger(text: string, cursorPosition: number, element?: HTMLEle
     if (char === '@') {
       // 检查这个 @ 是否在文件标签内（已渲染的引用）
       if (element && isPositionInFileTag(element, start)) {
-        // 在文件标签内，跳过这个 @，继续向前搜索
-        start--;
-        continue;
+        // 在文件标签内，说明这是已渲染的文件引用，停止搜索
+        // 不继续向前搜索，因为我们需要的是光标附近的 @，而不是更早的 @
+        return null;
       }
 
       const query = text.slice(start + 1, cursorPosition);

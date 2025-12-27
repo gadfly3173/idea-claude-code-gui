@@ -47,7 +47,25 @@
     "imagePreview": "Aperçu",
     "context": "Contexte",
     "usage": "Utilisation",
-    "usagePercentage": "Utilisation: {{percentage}}"
+    "usagePercentage": "Utilisation: {{percentage}}",
+    "fileChooser": {
+      "title": "Sélectionner un fichier",
+      "description": "Sélectionnez un fichier à ajouter en pièce jointe"
+    },
+    "errors": {
+      "cannotOpenFile": "Impossible d'ouvrir le fichier : {{reason}}",
+      "fileNotExists": "Le fichier n'existe pas ({{path}})",
+      "cannotReadFile": "Impossible de lire le fichier : {{error}}"
+    },
+    "commands": {
+      "help": "Afficher les informations d'aide",
+      "clear": "Effacer l'historique de conversation",
+      "new": "Créer une nouvelle session",
+      "history": "Afficher l'historique",
+      "model": "Changer le modèle",
+      "settings": "Ouvrir les paramètres",
+      "compact": "Contexte de conversation compact"
+    }
   },
   "settings": {
     "title": "Paramètres",
@@ -85,6 +103,11 @@
         "level4": "Plus grande (110%)",
         "level5": "Grande (120%)",
         "level6": "Maximale (140%)"
+      },
+      "workingDirectory": {
+        "label": "Répertoire de travail",
+        "placeholder": "p. ex. projet1 ou laisser vide pour utiliser la racine du projet",
+        "hint": "Spécifiez le répertoire dans lequel Claude fonctionne. Peut utiliser le chemin relatif (relatif à la racine du projet) ou le chemin absolu. Laisser vide pour utiliser la racine du projet."
       }
     },
     "providers": "Gestion des fournisseurs",
@@ -192,7 +215,8 @@
         "hideApiKey": "Masquer",
         "confirmAdd": "Confirmer l'ajout",
         "saveChanges": "Enregistrer les modifications"
-      }
+      },
+      "importFromCcSwitchFile": "Sélectionner le fichier cc-switch.db à importer"
     },
     "comingSoon": "Bientôt disponible...",
     "permissionsComingSoon": "Configuration des permissions bientôt disponible...",
@@ -248,7 +272,8 @@
     "deleteSuccess": "Suppression réussie",
     "operationFailed": "Opération échouée",
     "copySuccess": "{{label}} copié dans le presse-papiers",
-    "copyFailed": "Échec de la copie"
+    "copyFailed": "Échec de la copie",
+    "configLoading": "Configuration en cours de chargement, veuillez réessayer"
   },
   "config": {
     "clickToCopy": "Cliquer pour copier",
@@ -338,7 +363,8 @@
       "memory": "Knowledge graph and memory storage tool",
       "sequentialThinking": "Sequential thinking and reasoning tool",
       "context7": "Document search and context retrieval tool"
-    }
+    },
+    "url": "URL"
   },
   "tools": {
     "toolCall": "Appel d'outil",
@@ -371,34 +397,34 @@
     "editPrefix": "Modifier : {{fileName}}"
   },
   "skills": {
-    "title": "Skills",
+    "title": "Compétences",
     "all": "Tous",
     "global": "Global",
     "local": "Local",
-    "filterEnabled": "Filter enabled Skills",
-    "enabled": "Enabled",
-    "filterDisabled": "Filter disabled Skills",
-    "disabled": "Disabled",
-    "searchPlaceholder": "Search Skills...",
-    "whatIsSkills": "What are Skills?",
-    "importSkill": "Import Skill",
-    "importGlobalSkill": "Import Global Skill",
-    "importLocalSkill": "Import Local Skill",
+    "filterEnabled": "Filtrer les compétences activées",
+    "enabled": "Activé",
+    "filterDisabled": "Filtrer les compétences désactivées",
+    "disabled": "Désactivé",
+    "searchPlaceholder": "Rechercher des compétences...",
+    "whatIsSkills": "Qu'est-ce que les compétences?",
+    "importSkill": "Importer une compétence",
+    "importGlobalSkill": "Importer une compétence globale",
+    "importLocalSkill": "Importer une compétence locale",
     "description": "Description",
-    "noDescription": "No description",
-    "noSkills": "No Skills",
-    "importHint": "Click + button to import Skill file or folder",
-    "deleteTitle": "Delete Skill",
-    "deleteMessage": "Are you sure you want to delete {{scope}} Skill \"{{name}}\"?\n\nThis action cannot be undone.",
+    "noDescription": "Pas de description",
+    "noSkills": "Pas de compétences",
+    "importHint": "Cliquez sur le bouton + pour importer un fichier ou un dossier de compétence",
+    "deleteTitle": "Supprimer une compétence",
+    "deleteMessage": "Êtes-vous sûr de vouloir supprimer {{scope}} Compétence \"{{name}}\"?\n\nCette action ne peut pas être annulée.",
     "deleteMessageGlobal": "global",
     "deleteMessageLocal": "local",
-    "importSuccess": "Successfully imported {{count}} Skills",
-    "importSuccessOne": "Successfully imported 1 Skill",
-    "importPartialSuccess": "Successfully imported {{count}}/{{total}} Skills, some failed",
-    "importFailed": "Failed to import Skill",
-    "deleteSuccess": "Successfully deleted Skill",
-    "toggleSuccess": "Updated Skill status",
-    "toggleFailed": "Failed to update Skill status"
+    "importSuccess": "{{count}} compétences importées avec succès",
+    "importSuccessOne": "1 compétence importée avec succès",
+    "importPartialSuccess": "{{count}}/{{total}} compétences importées avec succès, certaines ont échoué",
+    "importFailed": "Échec de l'importation d'une compétence",
+    "deleteSuccess": "Compétence supprimée avec succès",
+    "toggleSuccess": "État de la compétence mis à jour",
+    "toggleFailed": "Échec de la mise à jour de l'état de la compétence"
   },
   "models": {
     "claude": {
@@ -414,6 +440,64 @@
         "label": "Haiku 4.5",
         "description": "Haiku 4.5 · Le plus rapide pour des réponses rapides"
       }
+    },
+    "codex": {
+      "gpt51codex": {
+        "label": "gpt-5.1-codex",
+        "description": "Optimisé pour codex"
+      },
+      "gpt51codexMini": {
+        "label": "gpt-5.1-codex-mini",
+        "description": "Optimisé pour codex. Moins cher et plus rapide, mais moins performant"
+      },
+      "gpt51": {
+        "label": "gpt-5.1",
+        "description": "Connaissances générales largement diffusées et fortes capacités de raisonnement général"
+      }
     }
+  },
+  "modes": {
+    "default": {
+      "label": "Mode par défaut",
+      "tooltip": "Comportement de permission standard",
+      "description": "Nécessite une confirmation manuelle pour chaque opération, adapté à une utilisation prudente"
+    },
+    "plan": {
+      "label": "Mode Planification",
+      "tooltip": "Mode de planification - Pas d'exécution (non supporté pour le moment)",
+      "description": "Planification uniquement sans exécution, non supporté pour le moment"
+    },
+    "acceptEdits": {
+      "label": "Mode Agent",
+      "tooltip": "Accepter automatiquement les modifications de fichiers",
+      "description": "Accepter automatiquement la création/modification de fichiers, réduisant les étapes de confirmation"
+    },
+    "bypassPermissions": {
+      "label": "Mode Automatique",
+      "tooltip": "Contourner tous les contrôles de permission",
+      "description": "Entièrement automatisé, contournant tous les contrôles de permission [À utiliser avec prudence]"
+    }
+  },
+  "providers": {
+    "claude": {
+      "label": "Claude Code"
+    },
+    "codex": {
+      "label": "Codex Cli"
+    },
+    "gemini": {
+      "label": "Gemini Cli"
+    }
+  },
+  "filePicker": {
+    "addFromDiskTitle": "Ajouter un fichier depuis le disque",
+    "addFromDisk": "Ajouter depuis le disque...",
+    "searchPlaceholder": "Rechercher des fichiers du projet...",
+    "clearSearch": "Effacer la recherche",
+    "searchResults": "Résultats de la recherche",
+    "searching": "Recherche en cours...",
+    "noMatches": "Aucun fichier correspondant",
+    "openFiles": "Fichiers Ouverts",
+    "noOpenFiles": "Pas de fichiers ouverts"
   }
 }

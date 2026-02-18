@@ -13,6 +13,8 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -23,9 +25,15 @@ public class ProcessManager {
 
     private static final Logger LOG = Logger.getInstance(ProcessManager.class);
     private static final String CLAUDE_TEMP_DIR_NAME = "claude-agent-tmp";
+    private static final long CLEANUP_DELAY_MS = Long.getLong("claude.cwd.cleanup.delay", 3000);
 
     private final Map<String, Process> activeChannelProcesses = new ConcurrentHashMap<>();
     private final Set<String> interruptedChannels = ConcurrentHashMap.newKeySet();
+    private final ScheduledExecutorService cleanupExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread t = new Thread(r, "Claude-CWD-Cleanup");
+        t.setDaemon(true);
+        return t;
+    });
 
     /**
      * 注册活动进程
@@ -128,6 +136,17 @@ public class ProcessManager {
 
         activeChannelProcesses.clear();
         interruptedChannels.clear();
+        
+        // 关闭清理任务执行器
+        cleanupExecutor.shutdown();
+        try {
+            if (!cleanupExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                cleanupExecutor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            cleanupExecutor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
 
         LOG.info("[ProcessManager] Cleanup complete. Terminated " + count + " processes.");
     }
@@ -201,28 +220,45 @@ public class ProcessManager {
 
     /**
      * 清理 Claude 临时文件
+     * 添加延迟以确保所有子进程（尤其是 bash 进程）已完全终止
      */
     public void cleanupClaudeTempFiles(File tempDir, Set<String> preserved) {
         if (tempDir == null || !tempDir.exists()) {
             return;
         }
-        File[] leftovers = tempDir.listFiles((dir, name) ->
-            name.startsWith("claude-") && name.endsWith("-cwd"));
-        if (leftovers == null || leftovers.length == 0) {
-            return;
-        }
-        for (File file : leftovers) {
-            if (preserved != null && preserved.contains(file.getName())) {
-                continue;
+        
+        // 延迟清理，避免删除仍在使用的 cwd 文件
+        // 批量命令执行时，Claude SDK 会创建多个子进程，这些进程可能在父进程结束后仍在运行
+        // 如果立即清理，会导致 "No such file or directory" 错误
+        // 解决方案：使用单线程执行器调度延迟清理，避免线程泛滥和阻塞主线程
+        cleanupExecutor.schedule(() -> {
+            File[] leftovers = tempDir.listFiles((dir, name) ->
+                name.startsWith("claude-") && name.endsWith("-cwd"));
+            if (leftovers == null || leftovers.length == 0) {
+                return;
             }
-            // 使用带重试机制的删除，处理 Windows 文件锁定问题
-            if (!PlatformUtils.deleteWithRetry(file, 3)) {
-                try {
-                    Files.deleteIfExists(file.toPath());
-                } catch (IOException e) {
-                    LOG.error("[ProcessManager] Failed to delete temp cwd file: " + file.getAbsolutePath());
+            
+            int deletedCount = 0;
+            for (File file : leftovers) {
+                if (preserved != null && preserved.contains(file.getName())) {
+                    continue;
+                }
+                
+                // 使用带重试机制的删除，处理 Windows 文件锁定问题
+                // 如果文件仍在使用中，deleteWithRetry 会失败，保护正在使用的文件
+                if (PlatformUtils.deleteWithRetry(file, 3)) {
+                    deletedCount++;
+                } else {
+                    // 如果删除失败，可能文件仍在使用，记录但不强制删除
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("[ProcessManager] Could not delete cwd file (may still be in use): " + file.getName());
+                    }
                 }
             }
-        }
+            
+            if (deletedCount > 0 && LOG.isDebugEnabled()) {
+                LOG.debug("[ProcessManager] Cleaned up " + deletedCount + " temporary cwd file(s)");
+            }
+        }, CLEANUP_DELAY_MS, TimeUnit.MILLISECONDS);
     }
 }

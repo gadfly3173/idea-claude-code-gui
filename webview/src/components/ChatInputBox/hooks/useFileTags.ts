@@ -23,6 +23,8 @@ interface UseFileTagsOptions {
   editableRef: React.RefObject<HTMLDivElement | null>;
   getTextContent: () => string;
   onCloseCompletions: () => void;
+  /** Shared IME composing state ref - skip DOM updates during composition */
+  isComposingRef?: React.MutableRefObject<boolean>;
 }
 
 interface UseFileTagsReturn {
@@ -48,6 +50,7 @@ export function useFileTags({
   editableRef,
   getTextContent,
   onCloseCompletions,
+  isComposingRef,
 }: UseFileTagsOptions): UseFileTagsReturn {
   // Path mapping: filename/relative path -> absolute path (for tooltip display)
   const pathMappingRef = useRef<Map<string, string>>(new Map());
@@ -100,6 +103,18 @@ export function useFileTags({
   const renderFileTags = useCallback(() => {
     const timer = perfTimer('renderFileTags');
     if (!editableRef.current) return;
+
+    // CRITICAL: Skip during IME composition to prevent corrupting the composition state.
+    // During composition, the browser maintains internal state about the preedit text
+    // (underlined pending input). Modifying innerHTML during this period will:
+    // 1. Break the composition session
+    // 2. Leave residual underlines from the interrupted preedit
+    // 3. Cause incorrect character insertion
+    // This follows the pattern from tiptap/ProseMirror's view.composing guard.
+    if (isComposingRef && isComposingRef.current) {
+      timer.end();
+      return;
+    }
 
     const currentText = getTextContent();
     timer.mark('getText');
@@ -405,7 +420,7 @@ export function useFileTags({
     }, 0);
 
     timer.end();
-  }, [editableRef, getTextContent, onCloseCompletions, escapeHtmlText]);
+  }, [editableRef, getTextContent, onCloseCompletions, escapeHtmlText, isComposingRef]);
 
   /**
    * Extract all file tags from current input

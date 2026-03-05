@@ -20,7 +20,7 @@ function reactKeyEvent({
     metaKey,
     ctrlKey,
     shiftKey,
-    nativeEvent: { isComposing, key },
+    nativeEvent: { isComposing, key, keyCode: key === 'Enter' ? 13 : undefined },
     preventDefault: vi.fn(),
     stopPropagation: vi.fn(),
   };
@@ -28,97 +28,101 @@ function reactKeyEvent({
 }
 
 describe('useKeyboardHandler', () => {
+  const createOptions = () => ({
+    isComposingRef: { current: false },
+    lastCompositionEndTimeRef: { current: Date.now() - 1000 },
+    sendShortcut: 'enter' as const,
+    isLoading: false,
+    fileCompletion: { isOpen: false, handleKeyDown: vi.fn(() => false) },
+    commandCompletion: { isOpen: false, handleKeyDown: vi.fn(() => false) },
+    agentCompletion: { isOpen: false, handleKeyDown: vi.fn(() => false) },
+    promptCompletion: { isOpen: false, handleKeyDown: vi.fn(() => false) },
+    dollarCommandCompletion: { isOpen: false, handleKeyDown: vi.fn(() => false) },
+    handleMacCursorMovement: vi.fn(() => false),
+    handleHistoryKeyDown: vi.fn(() => false),
+    completionSelectedRef: { current: false },
+    submittedOnEnterRef: { current: false },
+    handleSubmit: vi.fn(),
+  });
+
   it('sends on Enter (enter mode) when allowed', () => {
-    const handleSubmit = vi.fn();
-    const submittedOnEnterRef = { current: false };
-    const completionSelectedRef = { current: false };
+    const options = createOptions();
 
     const { result } = renderHook(() =>
-      useKeyboardHandler({
-        isComposingRef: { current: false },
-        lastCompositionEndTimeRef: { current: Date.now() - 1000 },
-        sendShortcut: 'enter',
-        sdkStatusLoading: false,
-        sdkInstalled: true,
-        fileCompletion: { isOpen: false, handleKeyDown: vi.fn(() => false) },
-        commandCompletion: { isOpen: false, handleKeyDown: vi.fn(() => false) },
-        agentCompletion: { isOpen: false, handleKeyDown: vi.fn(() => false) },
-        promptCompletion: { isOpen: false, handleKeyDown: vi.fn(() => false) },
-        handleMacCursorMovement: vi.fn(() => false),
-        handleHistoryKeyDown: vi.fn(() => false),
-        completionSelectedRef,
-        submittedOnEnterRef,
-        handleSubmit,
-      })
+      useKeyboardHandler(options)
     );
 
     const e = reactKeyEvent({ key: 'Enter' });
     result.current.onKeyDown(e);
     expect(e.preventDefault).toHaveBeenCalled();
-    expect(handleSubmit).toHaveBeenCalledTimes(1);
-    expect(submittedOnEnterRef.current).toBe(true);
+    expect(options.handleSubmit).toHaveBeenCalledTimes(1);
+    expect(options.submittedOnEnterRef.current).toBe(true);
   });
 
   it('does not send when completion handles Enter', () => {
-    const handleSubmit = vi.fn();
-    const submittedOnEnterRef = { current: false };
-    const completionSelectedRef = { current: false };
+    const options = createOptions();
+    options.fileCompletion.isOpen = true;
+    options.fileCompletion.handleKeyDown = vi.fn(() => true);
 
     const { result } = renderHook(() =>
-      useKeyboardHandler({
-        isComposingRef: { current: false },
-        lastCompositionEndTimeRef: { current: Date.now() - 1000 },
-        sendShortcut: 'enter',
-        sdkStatusLoading: false,
-        sdkInstalled: true,
-        fileCompletion: { isOpen: true, handleKeyDown: vi.fn(() => true) },
-        commandCompletion: { isOpen: false, handleKeyDown: vi.fn(() => false) },
-        agentCompletion: { isOpen: false, handleKeyDown: vi.fn(() => false) },
-        promptCompletion: { isOpen: false, handleKeyDown: vi.fn(() => false) },
-        handleMacCursorMovement: vi.fn(() => false),
-        handleHistoryKeyDown: vi.fn(() => false),
-        completionSelectedRef,
-        submittedOnEnterRef,
-        handleSubmit,
-      })
+      useKeyboardHandler(options)
     );
 
     const e = reactKeyEvent({ key: 'Enter' });
     result.current.onKeyDown(e);
     expect(e.preventDefault).toHaveBeenCalled();
     expect(e.stopPropagation).toHaveBeenCalled();
-    expect(completionSelectedRef.current).toBe(true);
-    expect(handleSubmit).not.toHaveBeenCalled();
+    expect(options.completionSelectedRef.current).toBe(true);
+    expect(options.handleSubmit).not.toHaveBeenCalled();
+  });
+
+  it('does not send during composition', () => {
+    const options = createOptions();
+    options.isComposingRef.current = true;
+
+    const { result } = renderHook(() =>
+      useKeyboardHandler(options)
+    );
+
+    result.current.onKeyDown(reactKeyEvent({ key: 'Enter' }));
+    expect(options.handleSubmit).not.toHaveBeenCalled();
+  });
+
+  it('does not send within 100ms after composition end', () => {
+    const options = createOptions();
+    options.lastCompositionEndTimeRef.current = Date.now();
+
+    const { result } = renderHook(() =>
+      useKeyboardHandler(options)
+    );
+
+    result.current.onKeyDown(reactKeyEvent({ key: 'Enter' }));
+    expect(options.handleSubmit).not.toHaveBeenCalled();
+  });
+
+  it('does not send when already submitted in capture path', () => {
+    const options = createOptions();
+    options.submittedOnEnterRef.current = true;
+
+    const { result } = renderHook(() =>
+      useKeyboardHandler(options)
+    );
+
+    result.current.onKeyDown(reactKeyEvent({ key: 'Enter' }));
+    expect(options.handleSubmit).not.toHaveBeenCalled();
   });
 
   it('resets submit refs on key up', () => {
-    const handleSubmit = vi.fn();
-    const submittedOnEnterRef = { current: true };
-    const completionSelectedRef = { current: false };
+    const options = createOptions();
+    options.submittedOnEnterRef.current = true;
 
     const { result } = renderHook(() =>
-      useKeyboardHandler({
-        isComposingRef: { current: false },
-        lastCompositionEndTimeRef: { current: Date.now() - 1000 },
-        sendShortcut: 'enter',
-        sdkStatusLoading: false,
-        sdkInstalled: true,
-        fileCompletion: { isOpen: false, handleKeyDown: vi.fn(() => false) },
-        commandCompletion: { isOpen: false, handleKeyDown: vi.fn(() => false) },
-        agentCompletion: { isOpen: false, handleKeyDown: vi.fn(() => false) },
-        promptCompletion: { isOpen: false, handleKeyDown: vi.fn(() => false) },
-        handleMacCursorMovement: vi.fn(() => false),
-        handleHistoryKeyDown: vi.fn(() => false),
-        completionSelectedRef,
-        submittedOnEnterRef,
-        handleSubmit,
-      })
+      useKeyboardHandler(options)
     );
 
     const e = reactKeyEvent({ key: 'Enter' });
     result.current.onKeyUp(e);
     expect(e.preventDefault).toHaveBeenCalled();
-    expect(submittedOnEnterRef.current).toBe(false);
+    expect(options.submittedOnEnterRef.current).toBe(false);
   });
 });
-

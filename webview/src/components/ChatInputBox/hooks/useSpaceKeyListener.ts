@@ -1,7 +1,9 @@
 import { useEffect } from 'react';
+import type { RefObject } from 'react';
 
 export interface UseSpaceKeyListenerOptions {
   editableRef: React.RefObject<HTMLDivElement | null>;
+  isComposingRef?: RefObject<boolean>;
   onKeyDown: (e: KeyboardEvent) => void;
 }
 
@@ -10,15 +12,19 @@ export interface UseSpaceKeyListenerOptions {
  *
  * Uses native DOM listener to ensure consistent behavior across environments.
  */
-export function useSpaceKeyListener({ editableRef, onKeyDown }: UseSpaceKeyListenerOptions): void {
+export function useSpaceKeyListener({ editableRef, isComposingRef, onKeyDown }: UseSpaceKeyListenerOptions): void {
   useEffect(() => {
     const el = editableRef.current;
     if (!el) return;
 
-    el.addEventListener('keydown', onKeyDown);
-    return () => {
-      el.removeEventListener('keydown', onKeyDown);
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (isComposingRef?.current) return;
+      onKeyDown(e);
     };
-  }, [editableRef, onKeyDown]);
-}
 
+    el.addEventListener('keydown', handleKeyDown);
+    return () => {
+      el.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [editableRef, isComposingRef, onKeyDown]);
+}

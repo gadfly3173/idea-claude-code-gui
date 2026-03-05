@@ -17,12 +17,13 @@ function mockSelection() {
   return selection;
 }
 
-function setupHook(editable: HTMLDivElement) {
+function setupHook(editable: HTMLDivElement, isComposingRef?: React.MutableRefObject<boolean>) {
   return renderHook(() =>
     useFileTags({
       editableRef: { current: editable },
       getTextContent: () => editable.textContent ?? '',
       onCloseCompletions: vi.fn(),
+      isComposingRef,
     })
   );
 }
@@ -117,6 +118,27 @@ describe('useFileTags', () => {
     const { result } = setupHook(editable);
 
     result.current.pathMappingRef.current.set('src/a.ts', '/abs/src/a.ts');
+    result.current.renderFileTags();
+
+    expect(editable.querySelectorAll('.file-tag').length).toBe(1);
+  });
+
+  it('skips rendering during IME composition', () => {
+    const editable = createEditable();
+    editable.textContent = '@src/a.ts ';
+    mockSelection();
+
+    const isComposingRef = { current: true };
+    const { result } = setupHook(editable, isComposingRef);
+
+    result.current.pathMappingRef.current.set('src/a.ts', '/abs/src/a.ts');
+    result.current.renderFileTags();
+
+    // Should NOT render file tags during composition
+    expect(editable.querySelectorAll('.file-tag').length).toBe(0);
+
+    // After composition ends, should render normally
+    isComposingRef.current = false;
     result.current.renderFileTags();
 
     expect(editable.querySelectorAll('.file-tag').length).toBe(1);

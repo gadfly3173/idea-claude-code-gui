@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type { MutableRefObject } from 'react';
+import { shouldSubmitOnEnter } from '../utils/submitGating.js';
 
 interface CompletionOpenLike {
   isOpen: boolean;
@@ -9,6 +10,7 @@ export interface UseNativeEventCaptureOptions {
   editableRef: React.RefObject<HTMLDivElement | null>;
   isComposingRef: MutableRefObject<boolean>;
   lastCompositionEndTimeRef: MutableRefObject<number>;
+  isLoading: boolean;
   sendShortcut: 'enter' | 'cmdEnter';
   fileCompletion: CompletionOpenLike;
   commandCompletion: CompletionOpenLike;
@@ -33,6 +35,7 @@ export function useNativeEventCapture({
   editableRef,
   isComposingRef,
   lastCompositionEndTimeRef,
+  isLoading,
   sendShortcut,
   fileCompletion,
   commandCompletion,
@@ -49,6 +52,7 @@ export function useNativeEventCapture({
     editableRef,
     isComposingRef,
     lastCompositionEndTimeRef,
+    isLoading,
     sendShortcut,
     fileCompletion,
     commandCompletion,
@@ -64,6 +68,7 @@ export function useNativeEventCapture({
     editableRef,
     isComposingRef,
     lastCompositionEndTimeRef,
+    isLoading,
     sendShortcut,
     fileCompletion,
     commandCompletion,
@@ -114,21 +119,28 @@ export function useNativeEventCapture({
         ((ev.key === 'e' || ev.key === 'E') && ev.ctrlKey && !ev.metaKey);
       if (isCursorMovementKey) return;
 
-      if (latest.fileCompletion.isOpen || latest.commandCompletion.isOpen || latest.agentCompletion.isOpen || latest.promptCompletion.isOpen || latest.dollarCommandCompletion.isOpen) {
-        return;
-      }
-
-      const isRecentlyComposing = Date.now() - latest.lastCompositionEndTimeRef.current < 100;
-      const shift = (ev as KeyboardEvent).shiftKey === true;
+      const hasCompletionOpen =
+        latest.fileCompletion.isOpen ||
+        latest.commandCompletion.isOpen ||
+        latest.agentCompletion.isOpen ||
+        latest.promptCompletion.isOpen ||
+        latest.dollarCommandCompletion.isOpen;
       const metaOrCtrl = ev.metaKey || ev.ctrlKey;
-      const isSendKey =
-        latest.sendShortcut === 'cmdEnter'
-          ? isEnterKey && metaOrCtrl && !latest.isComposingRef.current
-          : isEnterKey &&
-            !shift &&
-            !latest.isComposingRef.current &&
-            !isRecentlyComposing;
-
+      const shift = ev.shiftKey === true;
+      // Check both ref and native event isComposing property for edge cases
+      // where composition event timing differs from browser's internal state
+      const isIMEComposing = latest.isComposingRef.current || ev.isComposing;
+      const isSendKey = shouldSubmitOnEnter({
+        isComposing: isIMEComposing,
+        lastCompositionEndTime: latest.lastCompositionEndTimeRef.current,
+        isLoading: latest.isLoading,
+        hasCompletionOpen,
+        sendShortcut: latest.sendShortcut,
+        isEnterKey,
+        hasModifier: metaOrCtrl,
+        isShiftPressed: shift,
+        submittedOnEnter: latest.submittedOnEnterRef.current,
+      });
       if (!isSendKey) return;
 
       ev.preventDefault();
@@ -168,10 +180,33 @@ export function useNativeEventCapture({
         latest.completionSelectedRef.current = false;
         return;
       }
-      if (latest.fileCompletion.isOpen || latest.commandCompletion.isOpen || latest.agentCompletion.isOpen || latest.promptCompletion.isOpen || latest.dollarCommandCompletion.isOpen) {
-        return;
-      }
+      const hasCompletionOpen =
+        latest.fileCompletion.isOpen ||
+        latest.commandCompletion.isOpen ||
+        latest.agentCompletion.isOpen ||
+        latest.promptCompletion.isOpen ||
+        latest.dollarCommandCompletion.isOpen;
+      // Check both ref and native event isComposing property for edge cases
+      // where composition event timing differs from browser's internal state
+      const isIMEComposing = latest.isComposingRef.current || (ev as InputEvent).isComposing;
+      const isSendKey = shouldSubmitOnEnter({
+        isComposing: isIMEComposing,
+        lastCompositionEndTime: latest.lastCompositionEndTimeRef.current,
+        isLoading: latest.isLoading,
+        hasCompletionOpen,
+        sendShortcut: latest.sendShortcut,
+        isEnterKey: true,
+        hasModifier: false,
+        submittedOnEnter: latest.submittedOnEnterRef.current,
+      });
+      if (!isSendKey) return;
+      latest.submittedOnEnterRef.current = true;
       latest.handleSubmit();
+      queueMicrotask(() => {
+        if (latest.submittedOnEnterRef.current) {
+          latest.submittedOnEnterRef.current = false;
+        }
+      });
     };
 
     el.addEventListener('keydown', nativeKeyDown, { capture: true });

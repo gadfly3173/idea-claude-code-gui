@@ -2,6 +2,8 @@ import { useCallback } from 'react';
 import type { TriggerQuery, DropdownPosition } from '../types';
 import { getVirtualCursorPosition } from '../utils/virtualCursorUtils.js';
 
+type RectGetter = (element: HTMLElement, charOffset: number) => DOMRect | null;
+
 /**
  * Helper function: check if text ends with a newline character
  */
@@ -144,6 +146,44 @@ export function getRectAtCharOffset(
   }
 
   return element.getBoundingClientRect();
+}
+
+function isInvalidRect(rect: DOMRect | null): boolean {
+  return !rect || (rect.width === 0 && rect.height === 0 && rect.top === 0 && rect.left === 0);
+}
+
+export function resolveTriggerPosition(
+  element: HTMLElement,
+  triggerStart: number,
+  rectGetter: RectGetter = getRectAtCharOffset
+): DropdownPosition | null {
+  const rect = rectGetter(element, triggerStart);
+  if (rect && !isInvalidRect(rect)) {
+    return {
+      top: rect.top,
+      left: rect.left,
+      width: rect.width,
+      height: rect.height,
+    };
+  }
+
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) {
+    return null;
+  }
+
+  const range = selection.getRangeAt(0);
+  const caretRect = range.getBoundingClientRect();
+  if (isInvalidRect(caretRect)) {
+    return null;
+  }
+
+  return {
+    top: caretRect.top,
+    left: caretRect.left,
+    width: caretRect.width,
+    height: caretRect.height,
+  };
 }
 
 /**
@@ -459,15 +499,7 @@ export function useTriggerDetection() {
     element: HTMLElement,
     triggerStart: number
   ): DropdownPosition | null => {
-    const rect = getRectAtCharOffset(element, triggerStart);
-    if (!rect) return null;
-
-    return {
-      top: rect.top,
-      left: rect.left,
-      width: rect.width,
-      height: rect.height,
-    };
+    return resolveTriggerPosition(element, triggerStart);
   }, []);
 
   /**

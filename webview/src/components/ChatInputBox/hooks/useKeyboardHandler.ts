@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, MutableRefObject } from 'react';
+import { shouldSubmitOnEnter } from '../utils/submitGating.js';
 
 interface CompletionWithKeyDown {
   isOpen: boolean;
@@ -14,8 +15,8 @@ export interface UseKeyboardHandlerOptions {
   isComposingRef: MutableRefObject<boolean>;
   lastCompositionEndTimeRef: MutableRefObject<number>;
   sendShortcut: 'enter' | 'cmdEnter';
-  sdkStatusLoading: boolean;
-  sdkInstalled: boolean;
+  /** Combined loading state: message sending || SDK loading || SDK not installed */
+  isLoading: boolean;
   fileCompletion: CompletionWithKeyDown;
   commandCompletion: CompletionWithKeyDown;
   agentCompletion: CompletionWithKeyDown;
@@ -51,8 +52,7 @@ export function useKeyboardHandler({
   isComposingRef,
   lastCompositionEndTimeRef,
   sendShortcut,
-  sdkStatusLoading,
-  sdkInstalled,
+  isLoading,
   fileCompletion,
   commandCompletion,
   agentCompletion,
@@ -143,17 +143,35 @@ export function useKeyboardHandler({
 
       if (handleHistoryKeyDown(e)) return;
 
-      const isRecentlyComposing = Date.now() - lastCompositionEndTimeRef.current < 100;
-      const isSendKey =
-        sendShortcut === 'cmdEnter'
-          ? isEnterKey && (e.metaKey || e.ctrlKey) && !isIMEComposing
-          : isEnterKey && !e.shiftKey && !isIMEComposing && !isRecentlyComposing;
-
-      if (!isSendKey) return;
+      const hasCompletionOpen =
+        fileCompletion.isOpen ||
+        commandCompletion.isOpen ||
+        agentCompletion.isOpen ||
+        promptCompletion.isOpen ||
+        dollarCommandCompletion.isOpen;
+      const isSendKey = shouldSubmitOnEnter({
+        isComposing: isIMEComposing,
+        lastCompositionEndTime: lastCompositionEndTimeRef.current,
+        isLoading,
+        hasCompletionOpen,
+        sendShortcut,
+        isEnterKey,
+        hasModifier: e.metaKey || e.ctrlKey,
+        isShiftPressed: e.shiftKey,
+        submittedOnEnter: submittedOnEnterRef.current,
+      });
+      if (!isSendKey) {
+        const isShortcutKey =
+          sendShortcut === 'cmdEnter'
+            ? isEnterKey && (e.metaKey || e.ctrlKey)
+            : isEnterKey && !e.shiftKey;
+        if (isShortcutKey && isLoading) {
+          e.preventDefault();
+        }
+        return;
+      }
 
       e.preventDefault();
-      if (sdkStatusLoading || !sdkInstalled) return;
-
       submittedOnEnterRef.current = true;
       handleSubmit();
     },
@@ -169,8 +187,7 @@ export function useKeyboardHandler({
       inlineCompletion,
       lastCompositionEndTimeRef,
       sendShortcut,
-      sdkStatusLoading,
-      sdkInstalled,
+      isLoading,
       submittedOnEnterRef,
       completionSelectedRef,
       handleSubmit,

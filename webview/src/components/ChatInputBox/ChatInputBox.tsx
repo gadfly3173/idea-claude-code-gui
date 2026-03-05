@@ -59,6 +59,7 @@ import {
 } from './providers/index.js';
 import { debounce } from './utils/debounce.js';
 import { setCursorOffset } from './utils/selectionUtils.js';
+import { shouldSubmitOnEnter } from './utils/submitGating.js';
 import { perfTimer } from '../../utils/debug.js';
 import { DEBOUNCE_TIMING } from '../../constants/performance.js';
 import { ContextMenu } from '../ContextMenu';
@@ -166,6 +167,9 @@ export const ChatInputBox = memo(forwardRef<ChatInputBoxHandle, ChatInputBoxProp
     // Text content hook
     const { getTextContent, invalidateCache } = useTextContent({ editableRef });
 
+    // Unified loading state: message sending || SDK loading || SDK not installed
+    const combinedLoading = isLoading || sdkStatusLoading || !sdkInstalled;
+
     // Close all completions helper
     const closeAllCompletions = useCallback(() => {
       fileCompletion.close();
@@ -180,6 +184,7 @@ export const ChatInputBox = memo(forwardRef<ChatInputBoxHandle, ChatInputBoxProp
       editableRef,
       getTextContent,
       onCloseCompletions: closeAllCompletions,
+      isComposingRef: sharedComposingRef,
     });
 
     // File reference completion hook
@@ -499,7 +504,9 @@ export const ChatInputBox = memo(forwardRef<ChatInputBoxHandle, ChatInputBoxProp
         // Note: Access isOpen directly from the completion objects at call time
         // to avoid unnecessary re-renders when isOpen changes
         const isOtherCompletionOpen = fileCompletion.isOpen || commandCompletion.isOpen || agentCompletion.isOpen || promptCompletion.isOpen || dollarCommandCompletion.isOpen;
-        if (!isOtherCompletionOpen) {
+        if (sharedComposingRef.current) {
+          inlineCompletion.clear();
+        } else if (!isOtherCompletionOpen) {
           inlineCompletion.updateQuery(text);
         } else {
           inlineCompletion.clear();
@@ -572,7 +579,34 @@ export const ChatInputBox = memo(forwardRef<ChatInputBoxHandle, ChatInputBoxProp
     const handleCompositionEnd = useCallback(() => {
       rawHandleCompositionEnd();
       sharedComposingRef.current = false;
-    }, [rawHandleCompositionEnd]);
+
+      // After IME composition ends, Chromium may leave behind fragmented DOM:
+      // split text nodes, empty <span> elements with inline styles, or other
+      // artifacts from the composition process. These fragments cause Backspace
+      // to require multiple presses (first press removes the empty element,
+      // second press deletes the actual character).
+      //
+      // Use requestAnimationFrame to run after the browser has finished updating
+      // the DOM from compositionend (including the natural post-composition input
+      // event), then normalize the DOM to merge adjacent text nodes and remove
+      // empty ones. Also remove empty inline elements that Chromium may insert.
+      requestAnimationFrame(() => {
+        const el = editableRef.current;
+        if (!el || isComposingRef.current) return;
+
+        // Remove empty inline elements (span, b, i, u, etc.) left by Chromium
+        const emptyInlines = el.querySelectorAll('span:empty, b:empty, i:empty, u:empty, font:empty');
+        for (const node of emptyInlines) {
+          // Only remove if it's not a file-tag or other intentional element
+          if (!node.classList.contains('file-tag') && !node.closest('.file-tag')) {
+            node.remove();
+          }
+        }
+
+        // Merge adjacent text nodes and remove empty text nodes
+        el.normalize();
+      });
+    }, [rawHandleCompositionEnd, editableRef, isComposingRef]);
 
     const { record: recordInputHistory, handleKeyDown: handleHistoryKeyDown } = useInputHistory({
       editableRef,
@@ -592,12 +626,13 @@ export const ChatInputBox = memo(forwardRef<ChatInputBoxHandle, ChatInputBoxProp
      */
     const handleKeyDownForTagRendering = useCallback(
       (e: KeyboardEvent) => {
+        if (sharedComposingRef.current) return;
         // If space key pressed, use debounce for delayed file tag rendering
         if (e.key === ' ') {
           debouncedRenderFileTags();
         }
       },
-      [debouncedRenderFileTags]
+      [debouncedRenderFileTags, sharedComposingRef]
     );
 
     const handleSubmit = useSubmitHandler({
@@ -649,8 +684,7 @@ export const ChatInputBox = memo(forwardRef<ChatInputBoxHandle, ChatInputBoxProp
       isComposingRef,
       lastCompositionEndTimeRef,
       sendShortcut,
-      sdkStatusLoading,
-      sdkInstalled,
+      isLoading: combinedLoading,
       fileCompletion,
       commandCompletion,
       agentCompletion,
@@ -682,6 +716,7 @@ export const ChatInputBox = memo(forwardRef<ChatInputBoxHandle, ChatInputBoxProp
       editableRef,
       isComposingRef,
       lastCompositionEndTimeRef,
+      isLoading: combinedLoading,
       sendShortcut,
       fileCompletion,
       commandCompletion,
@@ -789,7 +824,11 @@ export const ChatInputBox = memo(forwardRef<ChatInputBoxHandle, ChatInputBoxProp
       preloadSlashCommands();
     }, []);
 
-    useSpaceKeyListener({ editableRef, onKeyDown: handleKeyDownForTagRendering });
+    useSpaceKeyListener({
+      editableRef,
+      isComposingRef: sharedComposingRef,
+      onKeyDown: handleKeyDownForTagRendering,
+    });
 
     const {
       isResizing: isResizingInputBox,
@@ -868,6 +907,9 @@ export const ChatInputBox = memo(forwardRef<ChatInputBoxHandle, ChatInputBoxProp
                   ? (e.nativeEvent as InputEvent).inputType
                   : undefined;
               if (inputType === 'insertParagraph') {
+                if (sendShortcut === 'cmdEnter') {
+                  return;
+                }
                 e.preventDefault();
                 // If item was just selected in completion menu with enter, don't send message
                 if (completionSelectedRef.current) {
@@ -884,10 +926,25 @@ export const ChatInputBox = memo(forwardRef<ChatInputBoxHandle, ChatInputBoxProp
                 ) {
                   return;
                 }
-                // Only allow submit when not loading and not in IME composition
-                if (!isLoading && !isComposingRef.current) {
-                  handleSubmit();
-                }
+                const canSubmit = shouldSubmitOnEnter({
+                  isComposing: isComposingRef.current,
+                  lastCompositionEndTime: lastCompositionEndTimeRef.current,
+                  isLoading: combinedLoading,
+                  hasCompletionOpen: false,
+                  sendShortcut,
+                  isEnterKey: true,
+                  hasModifier: false,
+                  submittedOnEnter: submittedOnEnterRef.current,
+                });
+                if (!canSubmit) return;
+
+                submittedOnEnterRef.current = true;
+                handleSubmit();
+                queueMicrotask(() => {
+                  if (submittedOnEnterRef.current) {
+                    submittedOnEnterRef.current = false;
+                  }
+                });
               }
               // Fix: Remove delete key special handling during IME
               // Let browser naturally handle delete operations, sync state uniformly after compositionend

@@ -5,6 +5,7 @@ import com.github.claudecodegui.handler.core.HandlerContext;
 
 import com.github.claudecodegui.bridge.NodeDetector;
 import com.github.claudecodegui.dependency.DependencyManager;
+import com.github.claudecodegui.dependency.SdkOperationGate;
 import com.github.claudecodegui.model.NodeDetectionResult;
 import com.github.claudecodegui.dependency.InstallResult;
 import com.github.claudecodegui.dependency.SdkDefinition;
@@ -43,6 +44,14 @@ public class DependencyHandler extends BaseMessageHandler {
     private final NodeDetector nodeDetector;
     private volatile CompletableFuture<Void> initFuture;
     private final Object initLock;
+    /**
+     * Listener kept as a field so it can be deregistered when this handler's
+     * HandlerContext is disposed (wired via {@code addDisposeListener} in the
+     * constructor). SdkOperationGate is a JVM-wide singleton, so leaking
+     * listeners would slowly bloat the notification fan-out list across plugin
+     * reloads.
+     */
+    private final SdkOperationGate.StateListener gateListener;
 
     public DependencyHandler(HandlerContext context) {
         super(context);
@@ -51,6 +60,15 @@ public class DependencyHandler extends BaseMessageHandler {
         this.gson = new Gson();
         this.initFuture = null;
         this.initLock = new Object();
+        // Forward gate state transitions to the webview so the UI can pause sending
+        // and show a "SDK busy" toast. Fired on the operation thread; we trampoline
+        // to the EDT via callJavaScript.
+        this.gateListener = locked -> this.sendSdkOperationState(locked);
+        SdkOperationGate.getInstance().addListener(this.gateListener);
+        // Deterministic deregistration when the chat window is disposed — without
+        // this, every window close would leak a listener into the JVM-wide gate
+        // singleton across plugin reloads.
+        context.addDisposeListener(() -> SdkOperationGate.getInstance().removeListener(this.gateListener));
     }
 
     /**
@@ -107,8 +125,8 @@ public class DependencyHandler extends BaseMessageHandler {
 
     /**
      * Performs deferred Node.js cache warm-up for configured path.
-     * The returned future can be chained on by callers that depend on initialization.
-     * After the first call, subsequent invocations return the same (possibly completed) future.
+     * After the first call, subsequent invocations reuse the same
+     * (possibly completed) future as a one-shot initialization latch.
      */
     private void ensureInitializedAsync() {
         if (this.initFuture != null) {
@@ -188,49 +206,7 @@ public class DependencyHandler extends BaseMessageHandler {
                 return;
             }
 
-            // Move the entire install flow (including Node env check) to background thread
-            // to avoid blocking the CEF IO thread if the cache is cold.
-            CompletableFuture.runAsync(() -> {
-                try {
-                    // Check Node.js environment (may involve process I/O on cache miss)
-                    if (!this.dependencyManager.checkNodeEnvironment()) {
-                        JsonObject errorResult = new JsonObject();
-                        errorResult.addProperty("success", false);
-                        errorResult.addProperty("sdkId", sdkId);
-                        errorResult.addProperty("error", "node_not_configured");
-                        errorResult.addProperty(
-                            "message",
-                            "Node.js not configured. Please set Node.js path in Settings > Basic."
-                        );
-
-                        ApplicationManager.getApplication().invokeLater(() ->
-                            this.callJavaScript(
-                                "window.dependencyInstallResult",
-                                this.escapeJs(this.gson.toJson(errorResult))
-                            )
-                        );
-                        return;
-                    }
-
-                    InstallResult result = this.dependencyManager.installSdkSync(sdkId, requestedVersion, (logLine) -> {
-                        this.sendInstallProgress(sdkId, logLine);
-                    });
-
-                    this.sendInstallResult(result);
-
-                    // Refresh status after installation completes
-                    if (result.isSuccess()) {
-                        this.handleGetStatus();
-                    }
-                } catch (Exception e) {
-                    LOG.error("[DependencyHandler] Failed during dependency installation: " + e.getMessage(), e);
-                    this.sendErrorResult("dependencyInstallResult", e.getMessage());
-                    this.sendShowError("依赖安装失败: " + e.getMessage());
-                }
-            }, AppExecutorUtil.getAppExecutorService()).exceptionally(ex -> {
-                LOG.error("[DependencyHandler] Unexpected error in handleInstall: " + ex.getMessage(), ex);
-                return null;
-            });
+            this.runInstallFlowAsync(sdkId, requestedVersion, null, "依赖安装失败: ", "handleInstall");
 
         } catch (Exception e) {
             LOG.error("[DependencyHandler] Failed to install dependency: " + e.getMessage(), e);
@@ -249,7 +225,12 @@ public class DependencyHandler extends BaseMessageHandler {
 
             CompletableFuture.runAsync(() -> {
                 try {
-                    boolean success = this.dependencyManager.uninstallSdk(sdkId);
+                    // Stop every daemon before walking the SDK directory: on Windows,
+                    // Node.js holds file handles on dynamically-imported .mjs / .js
+                    // files, and Files.delete() would fail with AccessDeniedException.
+                    boolean success = SdkOperationGate.getInstance().runExclusively(() ->
+                        this.dependencyManager.uninstallSdk(sdkId)
+                    );
 
                     JsonObject result = new JsonObject();
                     result.addProperty("success", success);
@@ -298,54 +279,98 @@ public class DependencyHandler extends BaseMessageHandler {
                 return;
             }
 
-            CompletableFuture.runAsync(() -> {
-                try {
-                    // Check Node.js environment
-                    if (!this.dependencyManager.checkNodeEnvironment()) {
-                        JsonObject errorResult = new JsonObject();
-                        errorResult.addProperty("success", false);
-                        errorResult.addProperty("sdkId", sdkId);
-                        errorResult.addProperty("error", "node_not_configured");
-                        errorResult.addProperty(
-                            "message",
-                            "Node.js not configured. Please set Node.js path in Settings > Basic."
-                        );
-
-                        ApplicationManager.getApplication().invokeLater(() ->
-                            this.callJavaScript(
-                                "window.dependencyInstallResult",
-                                this.escapeJs(this.gson.toJson(errorResult))
-                            )
-                        );
-                        return;
-                    }
-
-                    this.sendInstallProgress(sdkId, "Updating SDK with npm install...");
-                    InstallResult result = this.dependencyManager.installSdkSync(sdkId, requestedVersion, (logLine) -> {
-                        this.sendInstallProgress(sdkId, logLine);
-                    });
-
-                    this.sendInstallResult(result);
-
-                    // Refresh status after update completes
-                    if (result.isSuccess()) {
-                        this.handleGetStatus();
-                    }
-                } catch (Exception e) {
-                    LOG.error("[DependencyHandler] Failed during dependency update: " + e.getMessage(), e);
-                    this.sendErrorResult("dependencyInstallResult", e.getMessage());
-                    this.sendShowError("依赖更新失败: " + e.getMessage());
-                }
-            }, AppExecutorUtil.getAppExecutorService()).exceptionally(ex -> {
-                LOG.error("[DependencyHandler] Unexpected error in handleUpdate: " + ex.getMessage(), ex);
-                return null;
-            });
+            this.runInstallFlowAsync(
+                sdkId,
+                requestedVersion,
+                "Updating SDK with npm install...",
+                "依赖更新失败: ",
+                "handleUpdate"
+            );
 
         } catch (Exception e) {
             LOG.error("[DependencyHandler] Failed to update dependency: " + e.getMessage(), e);
             this.sendErrorResult("dependencyInstallResult", e.getMessage());
             this.sendShowError("依赖更新失败: " + e.getMessage());
         }
+    }
+
+    /**
+     * Shared background install flow for {@link #handleInstall} and {@link #handleUpdate}.
+     *
+     * <p>Both code paths do the same work — Node env check, gate-wrapped
+     * {@code installSdkSync}, result dispatch, status refresh — and differ only in a
+     * pre-install progress message and the error-banner prefix. Keeping them in one
+     * helper avoids the two implementations drifting in subtle ways (e.g. forgetting
+     * to wrap a future change in the SdkOperationGate).
+     *
+     * @param sdkId                target SDK id
+     * @param requestedVersion     specific version to install, or null for default
+     * @param preInstallProgress   optional log line emitted before npm runs (null to skip)
+     * @param errorPrefix          Chinese prefix used in the user-visible error banner
+     * @param logContextName       short tag used in LOG.error messages for debugging
+     */
+    private void runInstallFlowAsync(
+            String sdkId,
+            String requestedVersion,
+            String preInstallProgress,
+            String errorPrefix,
+            String logContextName
+    ) {
+        // Move the entire install flow (including Node env check) to background thread
+        // to avoid blocking the CEF IO thread if the cache is cold.
+        CompletableFuture.runAsync(() -> {
+            try {
+                // Check Node.js environment (may involve process I/O on cache miss)
+                if (!this.dependencyManager.checkNodeEnvironment()) {
+                    JsonObject errorResult = new JsonObject();
+                    errorResult.addProperty("success", false);
+                    errorResult.addProperty("sdkId", sdkId);
+                    errorResult.addProperty("error", "node_not_configured");
+                    errorResult.addProperty(
+                        "message",
+                        "Node.js not configured. Please set Node.js path in Settings > Basic."
+                    );
+
+                    ApplicationManager.getApplication().invokeLater(() ->
+                        this.callJavaScript(
+                            "window.dependencyInstallResult",
+                            this.escapeJs(this.gson.toJson(errorResult))
+                        )
+                    );
+                    return;
+                }
+
+                if (preInstallProgress != null) {
+                    this.sendInstallProgress(sdkId, preInstallProgress);
+                }
+
+                // Run install under the gate so every daemon is stopped first and
+                // no new daemon can spawn until npm finishes — otherwise Node would
+                // keep the SDK's .mjs files locked on Windows and the install would
+                // fail with EBUSY/EPERM.
+                InstallResult result = SdkOperationGate.getInstance().runExclusively(() ->
+                    this.dependencyManager.installSdkSync(sdkId, requestedVersion, (logLine) ->
+                        this.sendInstallProgress(sdkId, logLine)
+                    )
+                );
+
+                this.sendInstallResult(result);
+
+                // Refresh status after the operation completes
+                if (result.isSuccess()) {
+                    this.handleGetStatus();
+                }
+            } catch (Exception e) {
+                LOG.error("[DependencyHandler] Failed during dependency "
+                        + logContextName + ": " + e.getMessage(), e);
+                this.sendErrorResult("dependencyInstallResult", e.getMessage());
+                this.sendShowError(errorPrefix + e.getMessage());
+            }
+        }, AppExecutorUtil.getAppExecutorService()).exceptionally(ex -> {
+            LOG.error("[DependencyHandler] Unexpected error in "
+                    + logContextName + ": " + ex.getMessage(), ex);
+            return null;
+        });
     }
 
     /**
@@ -523,6 +548,37 @@ public class DependencyHandler extends BaseMessageHandler {
     }
 
     // ==================== Helper Methods ====================
+
+    /**
+     * Notify the webview that an SDK operation has started or finished.
+     * The frontend uses this to disable chat sending and surface a toast —
+     * during the operation the Claude daemon is down, so any message would
+     * fall back to slow per-process mode without runtime context.
+     *
+     * <p>Trampolines to the EDT because callJavaScript ultimately invokes
+     * {@code JBCefBrowser.executeJavaScript}, which must run there.
+     *
+     * <p>Primary cleanup happens via {@code HandlerContext.addDisposeListener}
+     * (wired in the constructor). The {@code isDisposed()} check here is a
+     * defense-in-depth: if a fire is in flight when dispose runs, this short-
+     * circuits before touching a dead browser.
+     */
+    private void sendSdkOperationState(boolean locked) {
+        if (this.context.isDisposed()) {
+            return;
+        }
+
+        JsonObject payload = new JsonObject();
+        payload.addProperty("locked", locked);
+        String payloadJson = this.gson.toJson(payload);
+
+        ApplicationManager.getApplication().invokeLater(() -> {
+            if (this.context.isDisposed()) {
+                return;
+            }
+            this.callJavaScript("window.onSdkOperationStateChange", this.escapeJs(payloadJson));
+        });
+    }
 
     private void sendNodeEnvironmentStatus(JsonObject result) {
         ApplicationManager.getApplication().invokeLater(() ->

@@ -4,6 +4,7 @@ import com.google.gson.JsonObject;
 
 import com.github.claudecodegui.bridge.NodeDetector;
 import com.github.claudecodegui.session.ClaudeSession;
+import com.github.claudecodegui.dependency.SdkOperationGate;
 import com.github.claudecodegui.model.NodeDetectionResult;
 import com.github.claudecodegui.provider.common.BaseSDKBridge;
 import com.github.claudecodegui.provider.common.MessageCallback;
@@ -404,6 +405,19 @@ public class ClaudeSDKBridge extends BaseSDKBridge {
             MessageCallback callback
     ) {
         String normalizedCwd = normalizeCwdForNode(cwd);
+
+        // Backend guard: frontend blocks normal submits while the SDK operation gate
+        // is locked, but queued messages or stale webviews can still reach Java. Do
+        // not fall back to per-process mode here — that would start Node while npm or
+        // delete is mutating the SDK directory and can recreate Windows file locks.
+        if (SdkOperationGate.getInstance().isLocked()) {
+            String errorMessage = "SDK install/update/uninstall is in progress. Please wait until it completes before sending a message.";
+            LOG.info("[ClaudeSDKBridge] Rejecting send while SDK operation gate is locked");
+            if (callback != null) {
+                callback.onError(errorMessage);
+            }
+            return CompletableFuture.completedFuture(SDKResult.error(errorMessage));
+        }
 
         // Try daemon mode first (avoids per-request Node.js process spawning)
         DaemonBridge db = daemonCoordinator.getDaemonBridge();

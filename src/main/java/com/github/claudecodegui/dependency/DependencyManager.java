@@ -30,6 +30,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 /**
  * SDK dependency manager.
@@ -809,32 +810,65 @@ public class DependencyManager {
     /**
      * Recursively deletes a directory.
      *
+     * <p>Windows-specific: even after the Node daemon process exits, the OS may take
+     * a few hundred milliseconds to fully release file handles on dynamically-imported
+     * modules. We retry the failed paths a bounded number of times with a small delay
+     * to absorb that lag, instead of leaving orphan files behind on every uninstall.
+     *
      * @return a list of paths that failed to delete (empty list means complete success)
      */
     private List<Path> deleteDirectory(Path dir) throws IOException {
-        List<Path> failedPaths = new ArrayList<>();
-
         if (!Files.exists(dir)) {
-            return failedPaths;
+            return new ArrayList<>();
         }
 
-        // Collect all paths that failed to delete instead of silently ignoring them
-        Files.walk(dir)
-                .sorted((a, b) -> b.compareTo(a)) // Reverse sort to delete children first
-                .forEach(path -> {
-                    try {
-                        Files.delete(path);
-                    } catch (IOException e) {
-                        LOG.warn("[DependencyManager] Failed to delete: " + path + " - " + e.getMessage());
-                        failedPaths.add(path);
+        // Collect all entries up front (deepest first) so we can drive multiple retry
+        // passes against the same ordered list without re-walking the tree (which
+        // would also include parents we successfully deleted earlier).
+        // try-with-resources is required: Files.walk returns a Stream backed by an
+        // open directory handle that must be released — leaving it open would itself
+        // be a (different) file-lock leak on Windows.
+        List<Path> entries = new ArrayList<>();
+        try (Stream<Path> stream = Files.walk(dir)) {
+            stream.sorted((a, b) -> b.compareTo(a)) // Children before parents
+                    .forEach(entries::add);
+        }
+
+        // Bounded retry budget. On a healthy system one pass is enough; the retries
+        // only matter on Windows when a daemon was just torn down.
+        final int maxAttempts = 7;
+        final long retryDelayMs = 250L;
+
+        List<Path> failed = new ArrayList<>(entries);
+        for (int attempt = 1; attempt <= maxAttempts && !failed.isEmpty(); attempt++) {
+            List<Path> stillFailing = new ArrayList<>();
+            for (Path path : failed) {
+                try {
+                    Files.deleteIfExists(path);
+                } catch (IOException e) {
+                    stillFailing.add(path);
+                    if (attempt == maxAttempts) {
+                        LOG.warn("[DependencyManager] Failed to delete after " + maxAttempts
+                                + " attempts: " + path + " - " + e.getMessage());
                     }
-                });
-
-        if (!failedPaths.isEmpty()) {
-            LOG.warn("[DependencyManager] " + failedPaths.size() + " files/directories failed to delete");
+                }
+            }
+            failed = stillFailing;
+            if (!failed.isEmpty() && attempt < maxAttempts) {
+                try {
+                    Thread.sleep(retryDelayMs);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
         }
 
-        return failedPaths;
+        if (!failed.isEmpty()) {
+            LOG.warn("[DependencyManager] " + failed.size() + " files/directories failed to delete");
+        }
+
+        return failed;
     }
 
     /**

@@ -11,6 +11,10 @@ export interface QueuedMessage {
 export interface UseMessageQueueOptions {
   /** Whether AI is currently processing */
   isLoading: boolean;
+  /** Whether queued messages should wait even when loading is false */
+  isPaused?: boolean | (() => boolean);
+  /** Re-check pause state when an external pause source changes without re-rendering this hook's inputs */
+  pauseVersion?: number;
   /** Callback to execute a message */
   onExecute: (content: string, attachments?: Attachment[]) => void;
 }
@@ -34,11 +38,16 @@ export interface UseMessageQueueReturn {
  */
 export function useMessageQueue({
   isLoading,
+  isPaused = false,
+  pauseVersion = 0,
   onExecute,
 }: UseMessageQueueOptions): UseMessageQueueReturn {
   const [queue, setQueue] = useState<QueuedMessage[]>([]);
-  const prevLoadingRef = useRef(isLoading);
   const isExecutingFromQueueRef = useRef(false);
+  const executeDelayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isLoadingRef = useRef(isLoading);
+  const isPausedRef = useRef(typeof isPaused === 'function' ? isPaused() : isPaused);
+  const onExecuteRef = useRef(onExecute);
 
   // Generate unique ID
   const generateId = useCallback(() => {
@@ -66,14 +75,17 @@ export function useMessageQueue({
     setQueue([]);
   }, []);
 
-  // Auto-execute next message when loading completes
+  // Auto-execute next message when loading and pause state allow it
   useEffect(() => {
-    // Detect transition from loading to not loading
-    const wasLoading = prevLoadingRef.current;
-    prevLoadingRef.current = isLoading;
+    isLoadingRef.current = isLoading;
+    const paused = typeof isPaused === 'function' ? isPaused() : isPaused;
+    isPausedRef.current = paused;
+    onExecuteRef.current = onExecute;
 
-    // If just finished loading and queue has items, execute next
-    if (wasLoading && !isLoading && !isExecutingFromQueueRef.current && queue.length > 0) {
+    // If just finished loading and queue has items, execute next. When paused
+    // (for example while SDK install/update/uninstall is holding the backend gate),
+    // keep the item queued and wait for the next effect pass after pause releases.
+    if (!isLoading && !paused && !isExecutingFromQueueRef.current && queue.length > 0) {
       const nextMessage = queue[0];
       isExecutingFromQueueRef.current = true;
 
@@ -81,12 +93,29 @@ export function useMessageQueue({
       setQueue(prev => prev.slice(1));
 
       // Execute with small delay to ensure state updates
-      setTimeout(() => {
-        onExecute(nextMessage.content, nextMessage.attachments);
+      executeDelayRef.current = setTimeout(() => {
+        executeDelayRef.current = null;
+        const pausedNow = typeof isPaused === 'function' ? isPaused() : isPausedRef.current;
+        if (!isLoadingRef.current && !pausedNow) {
+          onExecuteRef.current(nextMessage.content, nextMessage.attachments);
+          isExecutingFromQueueRef.current = false;
+          return;
+        }
+        // Put the item back at the front so newly enqueued messages stay behind it
+        // and FIFO order is preserved if pause/loading flips during the delay.
+        setQueue(prev => [nextMessage, ...prev]);
         isExecutingFromQueueRef.current = false;
       }, 50);
     }
-  }, [isLoading, queue, onExecute]);
+  }, [isLoading, isPaused, pauseVersion, queue, onExecute]);
+
+  useEffect(() => {
+    return () => {
+      if (executeDelayRef.current !== null) {
+        clearTimeout(executeDelayRef.current);
+      }
+    };
+  }, []);
 
   return {
     queue,

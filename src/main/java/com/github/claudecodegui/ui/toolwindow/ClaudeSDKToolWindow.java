@@ -129,6 +129,16 @@ public class ClaudeSDKToolWindow implements ToolWindowFactory, DumbAware {
         return collectProjectChatWindows(project);
     }
 
+    /**
+     * Public version of {@link #collectAllChatWindows()} that exposes every chat
+     * window in the JVM. Used by {@code SdkOperationGate} to shut down all daemons
+     * across all projects before performing an SDK install/update/uninstall, so
+     * Node.js does not keep the SDK files locked on Windows.
+     */
+    public static Set<ClaudeChatWindow> getAllChatWindows() {
+        return collectAllChatWindows();
+    }
+
     private static Set<ClaudeChatWindow> collectAllChatWindows() {
         Set<ClaudeChatWindow> windows = Collections.newSetFromMap(new java.util.IdentityHashMap<>());
         windows.addAll(instances.values());

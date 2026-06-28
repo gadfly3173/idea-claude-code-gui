@@ -3,6 +3,7 @@ package com.github.claudecodegui.provider.claude;
 import com.github.claudecodegui.bridge.BridgeDirectoryResolver;
 import com.github.claudecodegui.bridge.EnvironmentConfigurator;
 import com.github.claudecodegui.bridge.NodeDetector;
+import com.github.claudecodegui.dependency.SdkOperationGate;
 import com.github.claudecodegui.provider.common.DaemonBridge;
 import com.google.gson.JsonObject;
 import com.intellij.openapi.diagnostic.Logger;
@@ -71,18 +72,21 @@ class ClaudeDaemonCoordinator {
     }
 
     DaemonBridge getDaemonBridge() {
-        DaemonBridge current = daemonBridge;
-        if (current != null && current.isAlive()) {
-            return current;
-        }
-        if (System.currentTimeMillis() < daemonRetryAfter) {
-            return null;
-        }
-
         synchronized (daemonLock) {
-            current = daemonBridge;
+            // Check under daemonLock before both reuse and spawn. Returning an alive
+            // daemon from a lock-free fast path can race SdkOperationGate after it
+            // flips to locked but before shutdownAllDaemons() stops the process.
+            if (SdkOperationGate.getInstance().isLocked()) {
+                log.info("[DaemonCoordinator] Skipping daemon use; SDK operation in progress");
+                return null;
+            }
+
+            DaemonBridge current = daemonBridge;
             if (current != null && current.isAlive()) {
                 return current;
+            }
+            if (System.currentTimeMillis() < daemonRetryAfter) {
+                return null;
             }
 
             daemonRetryAfter = System.currentTimeMillis() + DAEMON_RETRY_DELAY_MS;
@@ -118,17 +122,23 @@ class ClaudeDaemonCoordinator {
     }
 
     void shutdownDaemon() {
-        CompletableFuture<?> runningPrewarm = prewarmFuture;
-        if (runningPrewarm != null) {
-            runningPrewarm.cancel(true);
-            prewarmFuture = null;
-        }
+        // Acquire daemonLock so we don't race a concurrent getDaemonBridge() that is
+        // mid-way through starting a new daemon — without this, SdkOperationGate's
+        // shutdownAllDaemons() could finish while another thread is still spawning
+        // a new daemon process, leaving the SDK files locked.
+        synchronized (daemonLock) {
+            CompletableFuture<?> runningPrewarm = prewarmFuture;
+            if (runningPrewarm != null) {
+                runningPrewarm.cancel(true);
+                prewarmFuture = null;
+            }
 
-        DaemonBridge current = daemonBridge;
-        if (current != null) {
-            current.stop();
-            daemonBridge = null;
-            daemonRetryAfter = 0;
+            DaemonBridge current = daemonBridge;
+            if (current != null) {
+                current.stop();
+                daemonBridge = null;
+                daemonRetryAfter = 0;
+            }
         }
     }
 

@@ -5,8 +5,13 @@ import com.github.claudecodegui.provider.claude.ClaudeSDKBridge;
 import com.github.claudecodegui.provider.codex.CodexSDKBridge;
 import com.github.claudecodegui.settings.CodemossSettingsService;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.ui.jcef.JBCefBrowser;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * Handler context.
@@ -16,6 +21,8 @@ public class HandlerContext {
 
     public static final String DEFAULT_MODEL = "claude-sonnet-4-6";
     public static final String DEFAULT_PROVIDER = "claude";
+
+    private static final Logger LOG = Logger.getInstance(HandlerContext.class);
 
     private final Project project;
     private final ClaudeSDKBridge claudeSDKBridge;
@@ -29,6 +36,13 @@ public class HandlerContext {
     private volatile String currentModel = DEFAULT_MODEL;
     private volatile String currentProvider = DEFAULT_PROVIDER;
     private volatile boolean disposed = false;
+
+    // Dispose callbacks let handlers that subscribe to JVM-wide singletons (e.g.
+    // SdkOperationGate) deregister themselves when the chat window is closed.
+    // CopyOnWriteArrayList because subscription is rare relative to traversal,
+    // and a callback may itself try to add/remove during fire.
+    private final List<Runnable> disposeListeners = new CopyOnWriteArrayList<>();
+    private final Object disposeLock = new Object();
 
     /**
      * JavaScript callback interface.
@@ -107,7 +121,57 @@ public class HandlerContext {
     }
 
     public void setDisposed(boolean disposed) {
-        this.disposed = disposed;
+        List<Runnable> listenersToRun = null;
+        synchronized (disposeLock) {
+            boolean wasDisposed = this.disposed;
+            this.disposed = disposed;
+            // Fire dispose callbacks exactly once on the false→true edge. Idempotent
+            // against repeat setDisposed(true) calls and inert on setDisposed(false)
+            // (no existing call site does that, but the guard keeps it safe).
+            if (disposed && !wasDisposed) {
+                listenersToRun = new ArrayList<>(disposeListeners);
+                disposeListeners.clear();
+            }
+        }
+
+        if (listenersToRun != null) {
+            for (Runnable listener : listenersToRun) {
+                try {
+                    listener.run();
+                } catch (Throwable t) {
+                    LOG.warn("[HandlerContext] Dispose listener threw: " + t.getMessage(), t);
+                }
+            }
+        }
+    }
+
+    /**
+     * Register a callback to be invoked when this context is disposed. Use this
+     * to deregister handlers from JVM-wide singletons (e.g. SdkOperationGate) so
+     * that listener lists don't leak across plugin reloads. Listeners fire once
+     * on the false→true transition of {@link #disposed}; further registrations
+     * after disposal run synchronously and are not retained.
+     */
+    public void addDisposeListener(Runnable listener) {
+        if (listener == null) {
+            return;
+        }
+
+        boolean runImmediately;
+        synchronized (disposeLock) {
+            runImmediately = disposed;
+            if (!runImmediately) {
+                disposeListeners.add(listener);
+            }
+        }
+
+        if (runImmediately) {
+            try {
+                listener.run();
+            } catch (Throwable t) {
+                LOG.warn("[HandlerContext] Late dispose listener threw: " + t.getMessage(), t);
+            }
+        }
     }
 
     // JavaScript callback proxy methods

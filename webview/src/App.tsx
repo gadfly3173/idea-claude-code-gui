@@ -96,6 +96,18 @@ const App = () => {
   const isFirstMountRef = useRef(true);
   const chatInputRef = useRef<ChatInputBoxHandle>(null);
 
+  // SDK operation gate state pushed from Java's SdkOperationGate. While true, the
+  // Claude daemon is down for install/update/uninstall — sending now would fall
+  // back to slow per-process mode and break runtime context, so we block submits
+  // here and surface a toast. The ref keeps handleSubmit stable; the version state
+  // only wakes the message queue when the gate flips.
+  const sdkOperationLockedRef = useRef(false);
+  const isSdkOperationLocked = useCallback(() => sdkOperationLockedRef.current, []);
+  const [sdkGateVersion, setSdkGateVersion] = useState(0);
+  // Suppress duplicate "SDK busy" toasts across rapid retry submits. Reset each
+  // time the gate releases so the next operation starts clean.
+  const sdkBusyToastShownRef = useRef(false);
+
   // StatusPanel collapse state — kept in App.tsx because forceStatusUpdate is
   // intentionally local: a tiny re-render trigger paired with userCollapsedRef.
   const userCollapsedRef = useRef(false);
@@ -243,6 +255,49 @@ const App = () => {
     return () => clearTimeout(retryTimer);
   }, []);
 
+  // Receive SDK operation gate transitions from Java (SdkOperationGate). Chained
+  // with any previously-installed handler so coexistence with other components is
+  // preserved.
+  //
+  // Important: the effect deps must be empty. react-i18next's `t` changes on
+  // language switches, and we don't want to re-install the global window hook on
+  // every language change — that would briefly drop the chain (between cleanup
+  // and re-bind) and risk missing a gate transition. Use refs to read the latest
+  // addToast / t at call time instead.
+  const addToastRef = useRef(addToast);
+  const tRef = useRef(t);
+  useEffect(() => { addToastRef.current = addToast; }, [addToast]);
+  useEffect(() => { tRef.current = t; }, [t]);
+
+  useEffect(() => {
+    const prev = window.onSdkOperationStateChange;
+    window.onSdkOperationStateChange = (jsonStr: string) => {
+      try {
+        const payload = JSON.parse(jsonStr);
+        const locked = !!payload?.locked;
+        sdkOperationLockedRef.current = locked;
+        setSdkGateVersion(v => v + 1);
+        if (locked) {
+          addToastRef.current(
+            tRef.current('chat.sdkOperationInProgress', { defaultValue: 'SDK update in progress — message sending paused' }),
+            'info'
+          );
+        } else {
+          // Reset busy-toast suppression so the next operation starts fresh.
+          sdkBusyToastShownRef.current = false;
+          addToastRef.current(
+            tRef.current('chat.sdkOperationCompleted', { defaultValue: 'SDK update complete — you can keep chatting' }),
+            'success'
+          );
+        }
+      } catch (e) {
+        console.error('[App] Failed to parse onSdkOperationStateChange payload:', e);
+      }
+      try { prev?.(jsonStr); } catch (e) { console.error('[App] chained onSdkOperationStateChange handler threw:', e); }
+    };
+    return () => { window.onSdkOperationStateChange = prev; };
+  }, []);
+
   useEffect(() => {
     if (isFirstMountRef.current) { isFirstMountRef.current = false; return; }
     if (currentView === 'chat') { forceRefreshPrompts(); }
@@ -341,7 +396,12 @@ const App = () => {
     queue: messageQueue,
     enqueue: enqueueMessage,
     dequeue: dequeueMessage,
-  } = useMessageQueue({ isLoading: loading, onExecute: executeMessage });
+  } = useMessageQueue({
+    isLoading: loading,
+    isPaused: isSdkOperationLocked,
+    pauseVersion: sdkGateVersion,
+    onExecute: executeMessage,
+  });
 
   // handleSubmit with queue support (new session and local commands bypass loading check)
   const handleSubmit = useCallback((content: string, attachments?: Attachment[]) => {
@@ -372,6 +432,20 @@ const App = () => {
         hookHandleSubmit(content, attachments);
         return;
       }
+    }
+    // SDK install/update/uninstall in progress \u2014 refuse: the daemon is torn down,
+    // so this would either fall back to per-process mode (no runtime context) or
+    // fail outright. Local commands above bypass this guard intentionally.
+    if (sdkOperationLockedRef.current) {
+      // Throttle: a single toast per busy window, not one per attempted send.
+      if (!sdkBusyToastShownRef.current) {
+        addToast(
+          t('chat.sdkOperationBusy', { defaultValue: 'Cannot send while an SDK update is in progress' }),
+          'info'
+        );
+        sdkBusyToastShownRef.current = true;
+      }
+      return;
     }
     // If loading, add to queue
     if (loading) {

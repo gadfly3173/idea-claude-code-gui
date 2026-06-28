@@ -831,6 +831,14 @@ interface Window {
   dependencyUninstallResult?: (json: string) => void;
 
   /**
+   * SDK operation gate state-change callback. Payload: `{ locked: boolean }`.
+   * Fired when an SDK install/update/uninstall starts (true) or finishes (false).
+   * The UI uses this to pause chat sending and surface a banner — during the
+   * operation the Claude daemon is torn down for file-lock reasons.
+   */
+  onSdkOperationStateChange?: (json: string) => void;
+
+  /**
    * Node environment status callback
    */
   nodeEnvironmentStatus?: (json: string) => void;

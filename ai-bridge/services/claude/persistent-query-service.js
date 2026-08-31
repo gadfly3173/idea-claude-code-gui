@@ -771,17 +771,23 @@ export async function setPermissionModePersistent(params = {}) {
     return;
   }
 
+  if (epoch && runtime.runtimeSessionEpoch !== epoch) {
+    log(`setPermissionModePersistent skipped: runtime epoch mismatch sessionId=${sessionId || '(none)'}`
+      + ` expected=${epoch} actual=${runtime.runtimeSessionEpoch || '(none)'} mode=${targetPermissionMode}`);
+    return;
+  }
+
   if (runtime.currentPermissionMode === targetPermissionMode) {
     log(`setPermissionModePersistent no-op: already ${targetPermissionMode}`
       + ` sessionId=${sessionId || '(none)'} epoch=${epoch || '(none)'}`);
     return;
   }
 
-  // Entering or leaving Auto (bypassPermissions) cannot be applied live:
+  // Entering or leaving Full Auto (bypassPermissions) cannot be applied live:
   // allowDangerouslySkipPermissions is a process-launch argv flag frozen at
   // spawn, and setPermissionMode() (a control request) can neither add nor
   // remove it. Calling setPermissionMode here would log "applied" while the
-  // subprocess keeps prompting (or keeps skipping, when leaving Auto). So for a
+  // subprocess keeps prompting (or keeps skipping, when leaving Full Auto). So for a
   // bypass-bit change, DON'T call setPermissionMode — invalidate the runtime
   // signature so the next send_message rebuilds the runtime with the correct
   // launch flag (mirrors buildRuntimeSignature's bypassPermissions bit). Update

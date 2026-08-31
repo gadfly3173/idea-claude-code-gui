@@ -189,6 +189,7 @@ export type PermissionMode =
   | 'default'
   | 'acceptEdits'
   | 'plan'
+  | 'auto'
   | 'bypassPermissions'
   | 'smol'
   | 'slow'
@@ -232,8 +233,15 @@ export const AVAILABLE_MODES: ModeInfo[] = [
     description: 'Auto-accept file creation/editing, fewer confirmations',
   },
   {
-    id: 'bypassPermissions',
+    id: 'auto',
     label: 'Auto Mode',
+    icon: 'codicon-shield',
+    tooltip: 'Let the provider review approval requests automatically',
+    description: 'Uses the provider-native reviewer while retaining safety boundaries',
+  },
+  {
+    id: 'bypassPermissions',
+    label: 'Full Auto',
     icon: 'codicon-zap',
     tooltip: 'Bypass all permission checks',
     description: 'Fully automated, bypasses all permission checks [use with caution]',
@@ -771,6 +779,8 @@ export interface ChatInputBoxProps {
   permissionMode?: PermissionMode;
   /** Current provider */
   currentProvider?: string;
+  /** Whether the installed Codex SDK supports native auto review */
+  codexNativeAutoReviewAvailable?: boolean;
   /** Usage percentage */
   usagePercentage?: number;
   /** Used context tokens */
@@ -910,6 +920,8 @@ export interface ButtonAreaProps {
   permissionMode?: PermissionMode;
   /** Current provider */
   currentProvider?: string;
+  /** Whether the installed Codex SDK supports native auto review */
+  codexNativeAutoReviewAvailable?: boolean;
   /** Current reasoning effort */
   reasoningEffort?: ReasoningEffort;
   /** Codex speed mode */

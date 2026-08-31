@@ -2113,9 +2113,15 @@
       "tooltip": "自动接受文件编辑",
       "description": "自动接受文件创建/编辑，减少确认步骤"
     },
-    "bypassPermissions": {
-      "label": "自动模式",
+    "auto": {
+      "label": "自动审批",
       "shortLabel": "自动",
+      "tooltip": "由模型审查器自动批准或阻止操作",
+      "description": "使用提供商原生审查器处理审批，同时保留安全边界"
+    },
+    "bypassPermissions": {
+      "label": "全自动",
+      "shortLabel": "全自动",
       "tooltip": "绕过所有权限检查",
       "description": "完全自动化，绕过所有权限检查【谨慎使用】"
     }
@@ -2137,6 +2143,12 @@
       "label": "自动编辑",
       "tooltip": "Codex approval_policy=on-request：按需发起审批请求。",
       "description": "平衡模式，保持正常编辑流程，同时在需要时进行审批。"
+    },
+    "auto": {
+      "label": "替我审批",
+      "shortLabel": "自动",
+      "tooltip": "Codex approvals_reviewer=auto_review：由自动审查器处理可审批请求。",
+      "description": "保持 workspace-write 沙箱；审查器无法批准的请求仍会升级处理。"
     },
     "bypassPermissions": {
       "label": "全自动",

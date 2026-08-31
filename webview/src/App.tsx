@@ -30,7 +30,7 @@ import {
 import { applyDiffTheme, getStoredDiffTheme } from './utils/diffTheme';
 import { collectTaskEventsFromMessages } from './utils/taskNotificationMessage';
 import type { ClaudeMessage } from './types';
-import type { Attachment, ChatInputBoxHandle } from './components/ChatInputBox/types';
+import type { Attachment, ChatInputBoxHandle, PermissionMode } from './components/ChatInputBox/types';
 import {
   apply1MContextSuffix,
   isValidPermissionMode,
@@ -160,6 +160,7 @@ const App = () => {
     currentProvider, selectedModel, permissionMode,
     selectedAgent, sdkStatusLoading, sdkStatusError, currentSdkInstalled,
     claudeSdkMeetsMinimum,
+    codexNativeAutoReviewAvailable,
     currentProviderRef,
     activeProviderConfig, claudeSettingsAlwaysThinkingEnabled,
     reasoningEffort, codexFastMode, dshPreset, streamingEnabledSetting, sendShortcut, autoOpenFileEnabled,
@@ -643,6 +644,7 @@ const App = () => {
               currentProvider={currentProvider}
               selectedModel={selectedModel}
               permissionMode={permissionMode}
+              codexNativeAutoReviewAvailable={codexNativeAutoReviewAvailable}
               selectedAgent={selectedAgent}
               sdkStatusLoading={sdkStatusLoading}
               sdkStatusError={sdkStatusError}
@@ -707,6 +709,7 @@ const App = () => {
         onRewindCancel={handleRewindCancel}
         currentProvider={currentProvider}
         permissionDialogTimeoutSeconds={permissionDialogTimeoutSeconds}
+        onPlanApprovalModeChange={(mode) => handleModeSelect(mode as PermissionMode)}
       />
     </>
   );

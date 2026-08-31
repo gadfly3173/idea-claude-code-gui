@@ -77,6 +77,7 @@ export const ButtonArea = ({
   selectedModel = DEFAULT_CLAUDE_MODEL_ID,
   permissionMode = 'default',
   currentProvider = 'claude',
+  codexNativeAutoReviewAvailable = true,
   reasoningEffort = 'high',
   dshPreset = '',
   codexFastMode = 'normal',
@@ -300,7 +301,12 @@ export const ButtonArea = ({
           onOpenCliSettings={onOpenCliSettings}
           compact
         />
-        <ModeSelect value={permissionMode} onChange={handleModeSelect} provider={currentProvider} />
+        <ModeSelect
+          value={permissionMode}
+          onChange={handleModeSelect}
+          provider={currentProvider}
+          codexNativeAutoReviewAvailable={codexNativeAutoReviewAvailable}
+        />
         <ModelConfigSelect
           selectedModel={selectedModel}
           onModelSelect={handleModelSelect}

@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildCodexCliEnvironment } from './codex-utils.js';
+import {
+  buildCodexCliEnvironment,
+  isCodexNativeAutoReviewSupported,
+  normalizeCodexPermissionMode,
+} from './codex-utils.js';
 
 test('removes inherited proxy variables by default', () => {
   const result = buildCodexCliEnvironment({
@@ -48,4 +52,16 @@ test('does not enable proxy inheritance for false-like values', () => {
     'CC_GUI_CODEX_INHERIT_PROXY',
     'HTTP_PROXY'
   ]);
+});
+
+test('normalizes native auto mode casing before dispatch', () => {
+  assert.equal(normalizeCodexPermissionMode('AUTO'), 'auto');
+  assert.equal(normalizeCodexPermissionMode(' auto '), 'auto');
+});
+
+test('requires Codex 0.146.0 or later for native auto review config', () => {
+  assert.equal(isCodexNativeAutoReviewSupported('0.145.0'), false);
+  assert.equal(isCodexNativeAutoReviewSupported('0.146.0'), true);
+  assert.equal(isCodexNativeAutoReviewSupported('0.151.0'), true);
+  assert.equal(isCodexNativeAutoReviewSupported('not-a-version'), false);
 });

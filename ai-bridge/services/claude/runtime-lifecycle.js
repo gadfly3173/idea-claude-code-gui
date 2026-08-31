@@ -144,18 +144,62 @@ export function buildRuntimeSignature(options, systemPromptAppend, streamingEnab
     // it afterwards (see shouldRecreateRuntimeForModel) — so toggling [1m] must
     // change the signature and rebuild the runtime instead of reusing it.
     contextWindow1M: (modelId || '').includes('[1m]'),
-    // bypassPermissions (Auto mode) requires allowDangerouslySkipPermissions,
+    // bypassPermissions (Full Auto) requires allowDangerouslySkipPermissions,
     // which the SDK passes as a process-launch argv flag — it is frozen at spawn
     // and setPermissionMode() (a runtime control request) cannot add it to a
-    // live subprocess. So a runtime spawned in another mode keeps prompting via
-    // canUseTool even after switching to Auto. Put the bypass state in the
-    // signature so entering/leaving Auto rebuilds the runtime with the correct
-    // launch flag. The other modes (default/plan/acceptEdits) need no launch
-    // flag and keep applying live via setPermissionMode, so they intentionally
-    // do NOT change the signature.
+    // live subprocess. So a runtime spawned in another mode cannot enter Full Auto
+    // without being recreated. Put the bypass state in the signature so entering/leaving
+    // Full Auto rebuilds the runtime with the correct launch flag. The other modes
+    // (default/plan/acceptEdits/auto) need no launch flag and keep applying live via
+    // setPermissionMode, so they intentionally do NOT change the signature.
     bypassPermissions: options.permissionMode === 'bypassPermissions'
   };
   return JSON.stringify(material);
+}
+
+/**
+ * Apply a permission mode while preserving runtime state when the SDK rejects it.
+ * Full Auto transitions mark the runtime for rebuild because the bypass flag is spawn-time only.
+ * @param {object} runtime
+ * @param {string} targetPermissionMode
+ * @returns {Promise<boolean>}
+ */
+export async function applyPermissionModeToRuntime(runtime, targetPermissionMode) {
+  const normalizedTargetPermissionMode = normalizePermissionMode(targetPermissionMode);
+  if (!runtime || runtime.closed) {
+    return false;
+  }
+  if (runtime.currentPermissionMode === normalizedTargetPermissionMode) {
+    runtime.permissionModeState.value = normalizedTargetPermissionMode;
+    return true;
+  }
+
+  const previousMode = runtime.currentPermissionMode;
+  const bypassBitChanged =
+    (normalizedTargetPermissionMode === 'bypassPermissions') !== (previousMode === 'bypassPermissions');
+  if (bypassBitChanged) {
+    // The bypass flag is frozen at process spawn, so a mode transition
+    // involving Full Auto must wait for acquireRuntime to rebuild it.
+    runtime.runtimeSignature = '__rebuild-pending-bypass-change__';
+    runtime.currentPermissionMode = normalizedTargetPermissionMode;
+    runtime.permissionModeState.value = normalizedTargetPermissionMode;
+    return true;
+  }
+
+  if (typeof runtime.query?.setPermissionMode === 'function') {
+    try {
+      await runtime.query.setPermissionMode(normalizedTargetPermissionMode);
+    } catch {
+      if (runtime.currentPermissionMode === previousMode) {
+        runtime.permissionModeState.value = previousMode;
+      }
+      return false;
+    }
+  }
+
+  runtime.currentPermissionMode = normalizedTargetPermissionMode;
+  runtime.permissionModeState.value = normalizedTargetPermissionMode;
+  return true;
 }
 
 async function ensureQueryFn() {
@@ -255,20 +299,11 @@ async function createRuntime(requestContext, callbacks) {
     ...(options.hooks || {}),
     PreToolUse: [{
       hooks: [createPreToolUseHook(runtime.permissionModeState, options.cwd, async (mode) => {
-        if (runtime.currentPermissionMode === mode) {
-          runtime.permissionModeState.value = mode;
-          return;
+        const applied = await applyPermissionModeToRuntime(runtime, mode);
+        if (!applied) {
+          console.warn('[LIFECYCLE] hook setPermissionMode failed, keeping local state unchanged:', mode);
         }
-        if (typeof runtime.query?.setPermissionMode === 'function') {
-          try {
-            await runtime.query.setPermissionMode(mode);
-          } catch (error) {
-            console.warn('[LIFECYCLE] hook setPermissionMode failed, updating local state only:', error.message);
-          }
-        }
-        // Always update local state to keep hook and runtime in sync
-        runtime.currentPermissionMode = mode;
-        runtime.permissionModeState.value = mode;
+        return applied;
       })]
     }]
   };
@@ -517,16 +552,9 @@ async function applyDynamicControls(runtime, requestContext) {
 
   const targetPermissionMode = normalizePermissionMode(requestContext.permissionMode);
   if (runtime.currentPermissionMode !== targetPermissionMode) {
-    if (typeof runtime.query?.setPermissionMode === 'function') {
-      try {
-        await runtime.query.setPermissionMode(targetPermissionMode);
-      } catch (error) {
-        console.error('[DAEMON] setPermissionMode failed:', error.message);
-      }
-    }
-    runtime.currentPermissionMode = targetPermissionMode;
-    if (runtime.permissionModeState) {
-      runtime.permissionModeState.value = targetPermissionMode;
+    const applied = await applyPermissionModeToRuntime(runtime, targetPermissionMode);
+    if (!applied) {
+      console.error('[DAEMON] setPermissionMode failed; keeping local state unchanged:', targetPermissionMode);
     }
   }
 

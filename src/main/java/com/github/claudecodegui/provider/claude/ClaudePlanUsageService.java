@@ -127,7 +127,7 @@ public final class ClaudePlanUsageService {
                 return false;
             }
             host = host.toLowerCase(java.util.Locale.ROOT);
-            return host.equals("z.ai") || host.endsWith(".z.ai");
+            return host.equals("z.ai") || host.endsWith(".z.ai") || host.equals("open.bigmodel.cn") || host.endsWith(".bigmodel.cn");
         } catch (Exception e) {
             return false;
         }

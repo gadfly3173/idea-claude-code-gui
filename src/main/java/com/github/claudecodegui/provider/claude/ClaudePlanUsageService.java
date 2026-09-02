@@ -25,8 +25,10 @@ import java.util.Map;
  *
  * <p>Two data sources, picked by backend:
  * <ul>
- *   <li><b>z.ai proxy</b> (detected via {@code ANTHROPIC_BASE_URL} host being
- *       {@code z.ai} or a subdomain): probes {@code {origin}/api/monitor/usage/quota/limit}
+ *   <li><b>z.ai / bigmodel.cn proxy</b> (detected via {@code ANTHROPIC_BASE_URL}
+ *       host being {@code z.ai}, {@code open.bigmodel.cn} or a subdomain of either;
+ *       bigmodel.cn exposes the same usage API): probes
+ *       {@code {origin}/api/monitor/usage/quota/limit}
  *       and parses the {@code TOKENS_LIMIT}/{@code CREDIT_LIMIT} windows (5h + 7d) plus the
  *       {@code TIME_LIMIT} monthly MCP budget. Returns {@code percentage} per window.</li>
  *   <li><b>Real Anthropic (OAuth subscription):</b> the SDK emits
@@ -84,7 +86,7 @@ public final class ClaudePlanUsageService {
 
     /**
      * Resolve the plan-usage payload for the webview poll. Probes the z.ai monitor
-     * endpoint on a z.ai backend; otherwise returns the cached rate_limit snapshot
+     * endpoint on a z.ai/bigmodel.cn backend; otherwise returns the cached rate_limit snapshot
      * (real Anthropic). Falls back to an unavailable marker.
      *
      * <p>The settings service is passed in by the caller (which holds a long-lived
@@ -115,7 +117,11 @@ public final class ClaudePlanUsageService {
 
     // ===== z.ai monitor endpoint =====
 
-    /** A z.ai backend is identified by its anthropic-compat base URL host being {@code z.ai} or a subdomain. */
+    /**
+     * A z.ai backend is identified by its anthropic-compat base URL host being {@code z.ai}
+     * or a subdomain; {@code open.bigmodel.cn} (and subdomains) expose the same
+     * usage-quota API, so they are matched too.
+     */
     static boolean isZaiBackend(JsonObject settings) {
         String base = envString(settings, "ANTHROPIC_BASE_URL");
         if (base == null) {
@@ -127,7 +133,7 @@ public final class ClaudePlanUsageService {
                 return false;
             }
             host = host.toLowerCase(java.util.Locale.ROOT);
-            return host.equals("z.ai") || host.endsWith(".z.ai");
+            return host.equals("z.ai") || host.endsWith(".z.ai") || host.equals("open.bigmodel.cn") || host.endsWith(".bigmodel.cn");
         } catch (Exception e) {
             return false;
         }

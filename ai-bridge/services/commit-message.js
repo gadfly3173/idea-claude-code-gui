@@ -154,6 +154,9 @@ async function generateWithClaudeAsk(prompt, model, config) {
   const stream = client.messages.stream({
     model: modelId,
     max_tokens: 1024,
+    // Reasoning models (e.g. DeepSeek) otherwise emit only `thinking` blocks and
+    // never a `text` answer, leaving the commit message empty.
+    thinking: { type: 'disabled' },
     messages: [{ role: 'user', content: prompt }],
   });
 

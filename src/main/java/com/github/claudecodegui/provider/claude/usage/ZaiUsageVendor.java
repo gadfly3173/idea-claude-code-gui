@@ -72,7 +72,7 @@ public final class ZaiUsageVendor implements RelayUsageVendor {
             pct = RelayUsageJson.clampPct(pct);
             String type = RelayUsageJson.asString(lim, "type");
             String period = period(lim, type);
-            Long resetsAtMs = RelayUsageJson.asLong(lim, "nextResetTime", "next_reset_time");
+            Long resetsAtMs = RelayUsageJson.asEpochMs(lim, "nextResetTime", "next_reset_time");
 
             JsonObject existing = byPeriod.get(period);
             if (existing != null) {

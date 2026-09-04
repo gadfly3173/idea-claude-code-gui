@@ -104,6 +104,38 @@ public class MiniMaxUsageVendorTest {
     }
 
     @Test
+    public void parseRemains_exactModelBeatsEarlierSubstringEntry() {
+        // "minimaxm25".contains("minimaxm2") — the exact M2 entry must win even
+        // though a substring-matching M2.5 entry precedes it in the array.
+        JsonObject body = JsonParser.parseString("""
+                {"model_remains":[
+                  {"model_name":"MiniMax-M2.5","current_interval_remaining_percent":40},
+                  {"model_name":"MiniMax-M2","current_interval_remaining_percent":75}
+                ]}
+                """).getAsJsonObject();
+
+        assertEquals(25.0, usedPct(MiniMaxUsageVendor.parseRemains(body, "MiniMax-M2")), 0.01);
+        // Substring still applies when no exact entry exists
+        assertEquals(60.0, usedPct(MiniMaxUsageVendor.parseRemains(body, "MiniMax-M2.5-long-ctx")), 0.01);
+    }
+
+    @Test
+    public void parseRemains_secondsEndTimeNormalizedToMillis() {
+        JsonObject body = JsonParser.parseString("""
+                {"model_remains":[{
+                  "model_name":"general",
+                  "current_interval_remaining_percent":50,
+                  "end_time":1786624965
+                }]}
+                """).getAsJsonObject();
+
+        JsonObject w5h = MiniMaxUsageVendor.parseRemains(body, null)
+                .getAsJsonArray("windows").get(0).getAsJsonObject();
+        assertEquals(java.time.Instant.ofEpochMilli(1786624965000L).toString(),
+                w5h.get("reset_at").getAsString());
+    }
+
+    @Test
     public void parseRemains_apiErrorReturnsNull() {
         JsonObject body = JsonParser.parseString(
                 "{\"base_resp\":{\"status_code\":1004,\"status_msg\":\"invalid api key\"}}").getAsJsonObject();

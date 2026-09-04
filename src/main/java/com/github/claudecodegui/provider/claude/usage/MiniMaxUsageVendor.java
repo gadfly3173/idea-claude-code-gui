@@ -68,16 +68,16 @@ public final class MiniMaxUsageVendor implements RelayUsageVendor {
         List<JsonObject> windows = new ArrayList<>();
         addWindow(windows, "5h",
                 invertRemaining(RelayUsageJson.asDouble(main, "current_interval_remaining_percent")),
-                RelayUsageJson.asLong(main, "end_time"));
+                RelayUsageJson.asEpochMs(main, "end_time"));
         Integer weeklyStatus = RelayUsageJson.asInt(main, "current_weekly_status");
         if (weeklyStatus != null && weeklyStatus == 1) {
             addWindow(windows, "7d",
                     invertRemaining(RelayUsageJson.asDouble(main, "current_weekly_remaining_percent")),
-                    RelayUsageJson.asLong(main, "weekly_end_time"));
+                    RelayUsageJson.asEpochMs(main, "weekly_end_time"));
         }
         addWindow(windows, "monthly",
                 invertRemaining(RelayUsageJson.asDouble(main, "current_monthly_remaining_percent")),
-                RelayUsageJson.asLong(main, "monthly_end_time"));
+                RelayUsageJson.asEpochMs(main, "monthly_end_time"));
         if (windows.isEmpty()) {
             return null;
         }
@@ -100,10 +100,13 @@ public final class MiniMaxUsageVendor implements RelayUsageVendor {
     }
 
     /**
-     * Pick the model_remains entry for the user's active model. Matching is
-     * bidirectional substring on normalized names so "MiniMax-M3" matches "M3",
-     * "minimax_m3", Unicode-dash variants etc.; fallback chain is "general"
-     * (Coding Plan default) → first entry.
+     * Pick the model_remains entry for the user's active model. Matching runs in
+     * two passes — exact normalized-name equality first, then bidirectional
+     * substring — so an earlier substring hit never shadows a later exact entry
+     * ("MiniMax-M2" must not resolve to a "MiniMax-M2.5" entry that precedes the
+     * exact one). Substring matching tolerates "MiniMax-M3" vs "M3",
+     * "minimax_m3", Unicode-dash variants etc. Fallback chain: "general" (the
+     * Coding Plan default) → first entry.
      */
     static JsonObject pickModel(JsonArray remains, String currentModel) {
         if (currentModel != null && !currentModel.isBlank()) {
@@ -114,7 +117,16 @@ public final class MiniMaxUsageVendor implements RelayUsageVendor {
                         continue;
                     }
                     String name = normalizeModelKey(RelayUsageJson.asString(el.getAsJsonObject(), "model_name"));
-                    if (!name.isEmpty() && (name.equals(cur) || name.contains(cur) || cur.contains(name))) {
+                    if (!name.isEmpty() && name.equals(cur)) {
+                        return el.getAsJsonObject();
+                    }
+                }
+                for (JsonElement el : remains) {
+                    if (!RelayUsageJson.isObject(el)) {
+                        continue;
+                    }
+                    String name = normalizeModelKey(RelayUsageJson.asString(el.getAsJsonObject(), "model_name"));
+                    if (!name.isEmpty() && (name.contains(cur) || cur.contains(name))) {
                         return el.getAsJsonObject();
                     }
                 }

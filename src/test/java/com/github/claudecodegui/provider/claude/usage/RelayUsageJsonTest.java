@@ -38,6 +38,18 @@ public class RelayUsageJsonTest {
     }
 
     @Test
+    public void asEpochMs_normalizesSecondsAndKeepsMillis() {
+        JsonObject o = com.google.gson.JsonParser.parseString(
+                "{\"sec\":1759180800,\"ms\":1759180800000,\"strSec\":\"1759180800\"}").getAsJsonObject();
+        // Seconds are scaled up; millis pass through untouched
+        assertEquals(Long.valueOf(1759180800000L), RelayUsageJson.asEpochMs(o, "sec"));
+        assertEquals(Long.valueOf(1759180800000L), RelayUsageJson.asEpochMs(o, "ms"));
+        assertEquals(Long.valueOf(1759180800000L), RelayUsageJson.asEpochMs(o, "strSec"));
+        assertNull(RelayUsageJson.asEpochMs(o, "missing"));
+        assertNull(RelayUsageJson.asEpochMs(null, "sec"));
+    }
+
+    @Test
     public void capacityPayload_prefers5hWindowOverWorst() {
         JsonObject payload = RelayUsageJson.capacityPayload("test",
                 List.of(RelayUsageJson.window("5h", 13, null),

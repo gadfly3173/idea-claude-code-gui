@@ -25,8 +25,11 @@ public class KimiCodingUsageVendorTest {
     public void matches_apiKimiHostWithCodingPathOnly() {
         assertTrue(vendor.matches("api.kimi.com", "/coding"));
         assertTrue(vendor.matches("api.kimi.com", "/coding/"));
+        assertTrue(vendor.matches("api.kimi.com", "/coding/anthropic"));
         assertFalse(vendor.matches("api.kimi.com", ""));
         assertFalse(vendor.matches("api.kimi.com", "/v1"));
+        // Segment boundary: a longer path merely prefixed by "coding" is not the plan
+        assertFalse(vendor.matches("api.kimi.com", "/codingfoo"));
         assertFalse(vendor.matches("moonshot.cn", "/coding"));
         assertFalse(vendor.matches("api.moonshot.cn", "/coding"));
     }
@@ -84,6 +87,39 @@ public class KimiCodingUsageVendorTest {
         assertEquals(20.0, windows.get(0).getAsJsonObject().get("used_pct").getAsDouble(), 0.01);
         assertEquals("7d", windows.get(1).getAsJsonObject().get("id").getAsString());
         assertEquals(75.0, windows.get(1).getAsJsonObject().get("used_pct").getAsDouble(), 0.01);
+    }
+
+    @Test
+    public void parseUsages_timeUnitIsAuthoritativeWhenPresent() {
+        // 300 SECONDS is five minutes, not the 5h window — ignored, not misclassified.
+        // 168 HOURS is a valid 7d spelling. Unknown units are ignored.
+        JsonObject body = JsonParser.parseString("""
+                {"limits":[
+                  {"window":{"duration":300,"timeUnit":"TIME_UNIT_SECOND"},
+                   "detail":{"limit":"100","used":"90"}},
+                  {"window":{"duration":168,"timeUnit":"TIME_UNIT_HOUR"},
+                   "detail":{"limit":"100","used":"40"}},
+                  {"window":{"duration":300,"timeUnit":"FORTNIGHTS"},
+                   "detail":{"limit":"100","used":"80"}}
+                ]}
+                """).getAsJsonObject();
+
+        com.google.gson.JsonArray windows = KimiCodingUsageVendor.parseUsages(body).getAsJsonArray("windows");
+        assertEquals(1, windows.size());
+        assertEquals("7d", windows.get(0).getAsJsonObject().get("id").getAsString());
+        assertEquals(40.0, windows.get(0).getAsJsonObject().get("used_pct").getAsDouble(), 0.01);
+    }
+
+    @Test
+    public void parseUsages_secondsResetTimeNormalizedToMillis() {
+        JsonObject body = JsonParser.parseString("""
+                {"usage":{"limit":"400","used":"100","resetTime":1759699200}}
+                """).getAsJsonObject();
+
+        JsonObject w7d = KimiCodingUsageVendor.parseUsages(body)
+                .getAsJsonArray("windows").get(0).getAsJsonObject();
+        assertEquals(java.time.Instant.ofEpochMilli(1759699200000L).toString(),
+                w7d.get("reset_at").getAsString());
     }
 
     @Test

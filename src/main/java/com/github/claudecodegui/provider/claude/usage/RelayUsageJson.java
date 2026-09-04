@@ -91,6 +91,24 @@ public final class RelayUsageJson {
         return Math.max(0, Math.min(100, v));
     }
 
+    /**
+     * Values below this threshold are treated as epoch SECONDS, not millis:
+     * 1e11 ms is March 1973 while 1e11 s is the year 5138, so any realistic
+     * reset time sits cleanly on one side of it. Vendor APIs differ on the
+     * unit (and some are undocumented), so normalize here rather than guess
+     * per vendor.
+     */
+    private static final long EPOCH_SECONDS_CEILING = 100_000_000_000L;
+
+    /** Epoch timestamp among {@code keys}, normalized to milliseconds, or null. */
+    public static Long asEpochMs(JsonObject o, String... keys) {
+        Long v = asLong(o, keys);
+        if (v == null) {
+            return null;
+        }
+        return v < EPOCH_SECONDS_CEILING ? v * 1000L : v;
+    }
+
     /** Render epoch milliseconds as an ISO-8601 instant (the payload reset_at format). */
     public static String epochMsToIso(long epochMs) {
         return Instant.ofEpochMilli(epochMs).toString();

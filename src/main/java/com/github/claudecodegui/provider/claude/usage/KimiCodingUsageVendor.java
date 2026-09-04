@@ -5,6 +5,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -31,8 +32,10 @@ public final class KimiCodingUsageVendor implements RelayUsageVendor {
     public boolean matches(String host, String path) {
         // api.kimi.com also serves the plain Moonshot-style API; only the
         // /coding path is the Coding Plan whose /v1/usages endpoint exists.
-        // Must be matched before any future plain-kimi vendor.
-        return "api.kimi.com".equals(host) && path != null && path.startsWith("/coding");
+        // Must be matched before any future plain-kimi vendor. The segment
+        // boundary matters: a hypothetical "/codingfoo" path is not the plan.
+        return "api.kimi.com".equals(host) && path != null
+                && (path.equals("/coding") || path.startsWith("/coding/"));
     }
 
     @Override
@@ -73,8 +76,11 @@ public final class KimiCodingUsageVendor implements RelayUsageVendor {
 
     /**
      * Classify a limits[] entry by its window duration. Observed shapes:
-     * 300 (minutes, or 18000 seconds) → 5h; 604800 (seconds) or 7 (days) → 7d.
-     * Anything else is ignored rather than guessed.
+     * 300 minutes (or 18000 seconds) → 5h; 604800 seconds or 7 days → 7d.
+     * When {@code timeUnit} is present it is authoritative — a 300-<em>second</em>
+     * window is five minutes, not 5h, and must be ignored rather than
+     * misclassified. Unit absent falls back to the numeric heuristic over the
+     * observed values; anything unrecognized is ignored rather than guessed.
      */
     static String windowPeriod(JsonObject item) {
         JsonObject window = RelayUsageJson.asObject(item, "window");
@@ -85,17 +91,34 @@ public final class KimiCodingUsageVendor implements RelayUsageVendor {
         if (duration == null || !Double.isFinite(duration)) {
             return null;
         }
+        long d = duration.longValue();
         String unit = RelayUsageJson.asString(window, "timeUnit");
-        if (duration == 300 || duration == 18000) {
+        if (unit != null) {
+            String u = unit.toUpperCase(Locale.ROOT);
+            if (u.contains("MINUTE")) {
+                return d == 300 ? "5h" : null;
+            }
+            if (u.contains("SECOND")) {
+                if (d == 18000) {
+                    return "5h";
+                }
+                return d == 604800 ? "7d" : null;
+            }
+            if (u.contains("HOUR")) {
+                if (d == 5) {
+                    return "5h";
+                }
+                return d == 168 ? "7d" : null;
+            }
+            if (u.contains("DAY")) {
+                return d == 7 ? "7d" : null;
+            }
+            return null;
+        }
+        if (d == 300 || d == 18000) {
             return "5h";
         }
-        if (duration == 604800) {
-            return "7d";
-        }
-        if (duration == 7 && "TIME_UNIT_DAY".equalsIgnoreCase(unit)) {
-            return "7d";
-        }
-        return null;
+        return d == 604800 ? "7d" : null;
     }
 
     /**
@@ -123,7 +146,7 @@ public final class KimiCodingUsageVendor implements RelayUsageVendor {
             pct = Math.max(0, limit - remaining) / limit * 100.0;
         }
         pct = RelayUsageJson.clampPct(pct);
-        Long resetAtMs = RelayUsageJson.asLong(detail, "resetTime", "reset_time");
+        Long resetAtMs = RelayUsageJson.asEpochMs(detail, "resetTime", "reset_time");
 
         JsonObject existing = byPeriod.get(period);
         if (existing != null) {

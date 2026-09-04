@@ -18,6 +18,7 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -314,12 +315,15 @@ public class MiniMaxHistoryReader {
                                         if (!Files.isDirectory(sessionDir)) {
                                             continue;
                                         }
-                                        if (!wanted.equals(readSessionId(sessionDir))) {
+                                        // Read snapshot.json once per dir — the record
+                                        // carries both the id and the workspace.
+                                        JsonObject record = readSessionRecord(sessionDir);
+                                        if (record == null || !wanted.equals(text(record, "sessionId"))) {
                                             continue;
                                         }
                                         // Prefer a session whose workspace matches cwd.
                                         if (cwd != null && !cwd.isBlank()) {
-                                            String ws = readWorkspaceDir(sessionDir);
+                                            String ws = text(record, "workspaceDir");
                                             if (ws != null && pathsMatch(ws, cwd)) {
                                                 return sessionDir;
                                             }
@@ -338,7 +342,11 @@ public class MiniMaxHistoryReader {
         return best;
     }
 
-    private String readSessionId(Path sessionDir) {
+    /**
+     * Reads the {@code record} object from a session's snapshot.json, or null
+     * when the snapshot is missing or malformed.
+     */
+    private static JsonObject readSessionRecord(Path sessionDir) {
         try {
             Path snapshotPath = sessionDir.resolve("snapshot.json");
             if (!Files.isRegularFile(snapshotPath)) {
@@ -348,23 +356,7 @@ public class MiniMaxHistoryReader {
                     .parseString(Files.readString(snapshotPath, StandardCharsets.UTF_8))
                     .getAsJsonObject();
             return snapshot.has("record") && snapshot.get("record").isJsonObject()
-                    ? text(snapshot.getAsJsonObject("record"), "sessionId") : null;
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    private String readWorkspaceDir(Path sessionDir) {
-        try {
-            Path snapshotPath = sessionDir.resolve("snapshot.json");
-            if (!Files.isRegularFile(snapshotPath)) {
-                return null;
-            }
-            JsonObject snapshot = JsonParser
-                    .parseString(Files.readString(snapshotPath, StandardCharsets.UTF_8))
-                    .getAsJsonObject();
-            return snapshot.has("record") && snapshot.get("record").isJsonObject()
-                    ? text(snapshot.getAsJsonObject("record"), "workspaceDir") : null;
+                    ? snapshot.getAsJsonObject("record") : null;
         } catch (Exception e) {
             return null;
         }
@@ -423,9 +415,9 @@ public class MiniMaxHistoryReader {
                                 text(call, "toolCallResultData"));
                         String resultText = extractToolResultText(resultData);
                         if (!resultText.isBlank()) {
-                            boolean isError = resultData != null && resultData.contains("\"error\"");
                             messages.add(buildToolResultMessage(
-                                    callId, truncate(resultText, MAX_TOOL_RESULT_CHARS), isError));
+                                    callId, truncate(resultText, MAX_TOOL_RESULT_CHARS),
+                                    isErrorResult(resultData)));
                         }
                     }
                 }
@@ -439,7 +431,9 @@ public class MiniMaxHistoryReader {
      * event per msg_id (upserts may re-emit updated tool results).
      */
     private List<JsonObject> parseDisplayJsonl(Path displayPath) throws IOException {
-        Map<String, JsonObject> latestById = new HashMap<>();
+        // LinkedHashMap: the stable timestamp sort below keeps first-seen
+        // (file) order for messages sharing a timestamp.
+        Map<String, JsonObject> latestById = new LinkedHashMap<>();
         Map<String, Long> seqById = new HashMap<>();
         List<String> lines = Files.readAllLines(displayPath, StandardCharsets.UTF_8);
         for (String line : lines) {
@@ -652,6 +646,16 @@ public class MiniMaxHistoryReader {
             return err.isJsonPrimitive() ? err.getAsString() : err.toString();
         }
         return obj.toString();
+    }
+
+    /**
+     * Structured error check: only a non-null top-level {@code "error"} field
+     * marks the result as failed. A raw substring match would false-positive
+     * on tool output that merely quotes JSON containing the word "error".
+     */
+    private static boolean isErrorResult(String resultData) {
+        JsonObject obj = parseJsonObject(resultData);
+        return obj != null && obj.has("error") && !obj.get("error").isJsonNull();
     }
 
     private static JsonObject parseJsonObject(String raw) {

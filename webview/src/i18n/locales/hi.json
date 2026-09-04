@@ -1699,6 +1699,9 @@
     "codex": {
       "label": "Codex"
     },
+    "minimax": {
+      "label": "MiniMax Code"
+    },
     "gemini": {
       "label": "Gemini Cli"
     },

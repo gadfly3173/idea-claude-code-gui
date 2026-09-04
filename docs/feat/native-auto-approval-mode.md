@@ -135,6 +135,33 @@ reports the same incompatibility.
 
 `auto` is exposed only for Claude and Codex. Other CLI providers retain their existing mode list and behavior; in particular, Grok's internal `auto` alias for its existing `/always-approve` control path is not repurposed by this feature.
 
+## Known limitations
+
+### Claude auto mode requires a claude-sonnet model upstream
+
+Claude's native auto mode delegates each tool call to a **server-side safety
+classifier that runs on a claude-sonnet model** (currently `claude-sonnet-5`). It is
+therefore only available when the upstream API actually serves a claude-sonnet
+model. When the classifier model is not available — for example on third-party
+relay/proxy endpoints that do not provide sonnet — tool calls that require
+classification fail with a retryable error, while read-only operations keep
+working:
+
+> `claude-sonnet-5[1m] is temporarily unavailable, so auto mode cannot determine the safety of Bash right now. Wait a moment and then try this action again... reading files, searching code, and other read-only operations do not require the classifier and can still be used.`
+
+Users on endpoints without a claude-sonnet model should pick another permission
+mode. Codex's `auto_review` runs locally inside the CLI and does not have this
+dependency.
+
+### Claude auto mode honors repository-level allow rules
+
+In `default` mode the plugin's PreToolUse hook answers `ask` for tools with side
+effects, so a malicious repository's `.claude/settings.json` allow-rule cannot
+silently auto-approve them. In `auto` mode the hook yields to the SDK's native
+flow, where matching allow rules are applied **before** the classifier runs —
+the same semantics as the Claude Code CLI. Explicit `deny` rules still apply in
+every mode. Users opening untrusted repositories should stay in `default` mode.
+
 ## Implementation
 
 1. **Canonical mode and persistence**

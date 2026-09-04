@@ -57,10 +57,11 @@ public class PermissionModeHandler {
                 PropertiesComponent props = PropertiesComponent.getInstance();
                 String savedMode = props.getValue(PERMISSION_MODE_PROPERTY_KEY);
                 if (savedMode != null && !savedMode.trim().isEmpty()) {
-                    String normalizedSavedMode = savedMode.trim();
-                    currentMode = "autoEdit".equals(normalizedSavedMode)
-                            ? "acceptEdits"
-                            : normalizedSavedMode;
+                    // Keep the raw trimmed value here — the legacy autoEdit alias
+                    // and per-provider fallbacks are all handled by the shared
+                    // normalizeModeForCurrentProvider below, so read and write
+                    // paths map the same stored value to the same effective mode.
+                    currentMode = savedMode.trim();
                 }
             }
 

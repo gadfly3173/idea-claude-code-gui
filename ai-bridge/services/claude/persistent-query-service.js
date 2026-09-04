@@ -32,6 +32,7 @@ import {
   registerRuntimeSession,
   acquireRuntime,
   applyDynamicControls,
+  applyPermissionModeToRuntime,
   buildRuntimeSignature,
   endRuntimeTurn,
   resetCachedQueryFn,
@@ -783,54 +784,29 @@ export async function setPermissionModePersistent(params = {}) {
     return;
   }
 
-  // Entering or leaving Full Auto (bypassPermissions) cannot be applied live:
-  // allowDangerouslySkipPermissions is a process-launch argv flag frozen at
-  // spawn, and setPermissionMode() (a control request) can neither add nor
-  // remove it. Calling setPermissionMode here would log "applied" while the
-  // subprocess keeps prompting (or keeps skipping, when leaving Full Auto). So for a
-  // bypass-bit change, DON'T call setPermissionMode — invalidate the runtime
-  // signature so the next send_message rebuilds the runtime with the correct
-  // launch flag (mirrors buildRuntimeSignature's bypassPermissions bit). Update
-  // local state so the intent is recorded; the rebuild spawns fresh regardless.
+  // Transition mechanics are centralized in applyPermissionModeToRuntime so the
+  // hook path, applyDynamicControls, and this daemon entry point follow one rule
+  // set: a Full Auto (bypassPermissions) transition marks the runtime for rebuild
+  // (allowDangerouslySkipPermissions is a spawn-time argv flag that a live
+  // setPermissionMode() control request can neither add nor remove), while other
+  // modes switch live via the SDK and leave local state untouched on rejection —
+  // the next send_message re-applies the requested mode via buildRequestContext.
   const bypassBitChanged =
     (targetPermissionMode === 'bypassPermissions')
       !== (runtime.currentPermissionMode === 'bypassPermissions');
+  const applied = await applyPermissionModeToRuntime(runtime, targetPermissionMode);
+  if (!applied) {
+    log(`setPermissionMode failed, local state left unchanged (will resync next turn):`
+      + ` sessionId=${sessionId || '(none)'} epoch=${epoch || '(none)'}`
+      + ` mode=${targetPermissionMode}`);
+    return;
+  }
+
   if (bypassBitChanged) {
-    runtime.runtimeSignature = '__rebuild-pending-bypass-change__';
-    runtime.currentPermissionMode = targetPermissionMode;
-    if (runtime.permissionModeState) {
-      runtime.permissionModeState.value = targetPermissionMode;
-    }
     log(`setPermissionModePersistent: bypass bit changed to ${targetPermissionMode};`
       + ` runtime marked for rebuild on next send sessionId=${sessionId || '(none)'}`
       + ` epoch=${epoch || '(none)'}`);
     return;
-  }
-
-  // Push to the SDK first. Only update local state on success — otherwise the
-  // PreToolUse hook would read the new mode while the SDK still enforces the
-  // old one, diverging until the next turn's applyDynamicControls resyncs.
-  // Leaving local state untouched keeps hook and SDK in agreement, and the
-  // Java side's settings write is harmless since the next send_message will
-  // re-apply the requested mode via buildRequestContext.
-  if (typeof runtime.query?.setPermissionMode === 'function') {
-    try {
-      await runtime.query.setPermissionMode(targetPermissionMode);
-    } catch (error) {
-      log(`setPermissionMode failed, local state left unchanged (will resync next turn): ${error.message}`
-        + ` sessionId=${sessionId || '(none)'} epoch=${epoch || '(none)'}`
-        + ` mode=${targetPermissionMode}`);
-      return;
-    }
-  }
-  // Note: a narrow race exists between the await above and these assignments.
-  // If the in-progress turn ends mid-await and a new turn's applyDynamicControls
-  // resets currentPermissionMode, our assignment would clobber that newer value.
-  // The window is a single await tick and the next turn resyncs anyway, so we
-  // accept it rather than add a compare-and-swap against the runtime's epoch.
-  runtime.currentPermissionMode = targetPermissionMode;
-  if (runtime.permissionModeState) {
-    runtime.permissionModeState.value = targetPermissionMode;
   }
 
   log(`setPermissionModePersistent applied sessionId=${sessionId || '(none)'}`

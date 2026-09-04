@@ -86,7 +86,7 @@ function extractFilePaths(toolName, toolInput) {
 }
 
 const INTERACTIVE_TOOLS = new Set(['AskUserQuestion']);
-const VALID_PERMISSION_MODES = new Set(['default', 'plan', 'acceptEdits', 'bypassPermissions']);
+const VALID_PERMISSION_MODES = new Set(['default', 'plan', 'acceptEdits', 'auto', 'bypassPermissions']);
 
 // Yield to the SDK's native permission flow (settings.json deny/allow/ask rules,
 // mode-check, canUseTool fallback). Maps to SyncHookJSONOutput.continue in sdk.d.ts.
@@ -121,11 +121,18 @@ export function createPreToolUseHook(permissionModeState, cwd = null, onModeChan
   };
   const updatePermissionMode = async (mode) => {
     const normalized = normalizePermissionMode(mode);
+    const previousMode = readPermissionMode();
     if (permissionModeState && typeof permissionModeState === 'object') {
       permissionModeState.value = normalized;
     }
     if (typeof onModeChange === 'function') {
-      await onModeChange(normalized);
+      const applied = await onModeChange(normalized);
+      if (applied === false) {
+        if (permissionModeState && typeof permissionModeState === 'object') {
+          permissionModeState.value = previousMode;
+        }
+        return previousMode;
+      }
     }
     return normalized;
   };
@@ -344,7 +351,7 @@ export function createPreToolUseHook(permissionModeState, cwd = null, onModeChan
       };
     }
 
-    // acceptEdits (file edits) and bypassPermissions yield to the SDK's native flow.
+    // acceptEdits, native auto review, and Full Auto all rely on the SDK's mode-specific flow.
     return YIELD_TO_SDK;
   };
 }

@@ -29,6 +29,7 @@ export function debugLog(level, tag, ...args) {
 export const logWarn = (tag, ...args) => debugLog(2, tag, ...args);
 export const logInfo = (tag, ...args) => debugLog(3, tag, ...args);
 export const logDebug = (tag, ...args) => debugLog(4, tag, ...args);
+export const CODEX_NATIVE_AUTO_REVIEW_MIN_VERSION = '0.146.0';
 export const VALID_SANDBOX_MODES = new Set(['read-only', 'workspace-write', 'danger-full-access']);
 export const VALID_APPROVAL_POLICIES = new Set(['never', 'on-request', 'on-failure']);
 // Note: 'untrusted' was removed in Codex CLI v0.149.0 - its semantics were merged
@@ -126,6 +127,47 @@ export function buildCodexCliEnvironment(baseEnv) {
   return { cliEnv, removedKeys };
 }
 
+/**
+ * Sets an explicit approval reviewer in Codex CLI configuration.
+ * The TypeScript SDK serializes `config` entries as `--config key=value`, while
+ * approval policy and sandbox mode remain thread options. Non-auto modes explicitly
+ * select the `user` reviewer so resumed threads cannot inherit `auto_review`.
+ *
+ * @param {object} codexOptions
+ * @param {object} permissionConfig
+ * @returns {object}
+ */
+export function applyCodexApprovalsReviewerConfig(codexOptions, permissionConfig) {
+  const approvalsReviewer = permissionConfig?.approvalsReviewer || 'user';
+  codexOptions.config = {
+    ...(codexOptions.config || {}),
+    approvals_reviewer: approvalsReviewer
+  };
+  return codexOptions;
+}
+
+/**
+ * Check whether an installed Codex SDK can honor approvals_reviewer.
+ * @param {string|null|undefined} version
+ * @returns {boolean}
+ */
+export function isCodexNativeAutoReviewSupported(version) {
+  const actual = typeof version === 'string' ? version.trim().match(/^(?:v)?(\d+)\.(\d+)\.(\d+)/) : null;
+  const required = CODEX_NATIVE_AUTO_REVIEW_MIN_VERSION.match(/^(\d+)\.(\d+)\.(\d+)/);
+  if (!actual || !required) {
+    return false;
+  }
+
+  for (let index = 1; index <= 3; index += 1) {
+    const actualPart = Number(actual[index]);
+    const requiredPart = Number(required[index]);
+    if (actualPart !== requiredPart) {
+      return actualPart > requiredPart;
+    }
+  }
+  return true;
+}
+
 export function normalizeCodexPermissionMode(mode) {
   if (typeof mode !== 'string') {
     return 'default';
@@ -133,6 +175,9 @@ export function normalizeCodexPermissionMode(mode) {
   const trimmed = mode.trim();
   if (!trimmed) {
     return 'default';
+  }
+  if (trimmed.toLowerCase() === 'auto') {
+    return 'auto';
   }
   if (trimmed === 'autoEdit') {
     return 'acceptEdits';

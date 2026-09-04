@@ -70,6 +70,15 @@ test('default mode: read-only helper tools (BashOutput, NotebookRead) yield "con
   }
 });
 
+test('native auto mode: Bash yields "continue" so the SDK classifier reviews it', async () => {
+  const hook = makeHook('auto');
+  const result = await hook({
+    tool_name: 'Bash',
+    tool_input: { command: 'date' },
+  });
+  assert.equal(result?.continue, true);
+});
+
 test('bypassPermissions mode: Bash yields "continue" (SDK mode-check auto-allows)', async () => {
   const hook = makeHook('bypassPermissions');
   const result = await hook({
@@ -192,7 +201,20 @@ test('plan mode: non-allowed tool falls through to plan-specific deny', async ()
   assert.equal(result?.hookSpecificOutput?.permissionDecision, 'deny');
 });
 
-// ======== SDK-shape validator self-tests ========
+test('mode transition callback failure restores the previous hook state', async () => {
+  const permissionModeState = { value: 'default' };
+  const hook = createPreToolUseHook(permissionModeState, '/tmp/test-cwd', async () => false);
+
+  const result = await hook({
+    tool_name: 'EnterPlanMode',
+    tool_input: {},
+  });
+
+  assert.equal(result?.hookSpecificOutput?.permissionDecision, 'allow');
+  assert.equal(permissionModeState.value, 'default');
+});
+
+
 // These prove the schema mirror in permission-mode-schema.js would have caught
 // the PR #1121/#1126 bug that PR #1213 fixed. If they fail, the validator no
 // longer guards against the historical regression.

@@ -1666,9 +1666,15 @@
       "tooltip": "自動接受檔案編輯",
       "description": "自動接受檔案建立/編輯，減少確認步驟"
     },
-    "bypassPermissions": {
-      "label": "自動模式",
+    "auto": {
+      "label": "自動審批",
       "shortLabel": "自動",
+      "tooltip": "由模型審查器自動批准或阻止操作",
+      "description": "使用供應商原生審查器處理審批，同時保留安全邊界"
+    },
+    "bypassPermissions": {
+      "label": "全自動",
+      "shortLabel": "全自動",
       "tooltip": "略過所有權限檢查",
       "description": "完全自動化，略過所有權限檢查【請謹慎使用】"
     }
@@ -1688,6 +1694,12 @@
       "label": "Auto Edit",
       "tooltip": "Codex approval_policy=on-request – asks for approval when needed",
       "description": "Balanced option. Allows normal editing flow while still requiring approvals when needed."
+    },
+    "auto": {
+      "label": "替我審批",
+      "shortLabel": "自動",
+      "tooltip": "Codex approvals_reviewer=auto_review：由自動審查器處理可審批請求。",
+      "description": "維持 workspace-write 沙箱；審查器無法批准的請求仍會升級處理。"
     },
     "bypassPermissions": {
       "label": "Full Auto",

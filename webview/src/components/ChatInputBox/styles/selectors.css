@@ -66,12 +66,12 @@
   text-overflow: ellipsis;
 }
 
-/* Auto mode (bypassPermissions) - subtle orange indicator */
-.selector-button.mode-auto-active {
+/* Full Auto (bypassPermissions) - subtle orange warning indicator */
+.selector-button.mode-full-auto-active {
   color: #cc8400;
 }
 
-.selector-button.mode-auto-active:hover {
+.selector-button.mode-full-auto-active:hover {
   color: #e09520;
 }
 

@@ -331,6 +331,7 @@
       "retryAttempts": "重试次数",
       "catalogColumns": "每行卡片数",
       "catalogPageSize": "每页数量",
+      "catalogSort": "排序方式",
       "pageSizeOption": "每页 {{count}} 个",
       "pageJump": "跳转到",
       "goToPage": "跳转到页面",

@@ -331,6 +331,7 @@
       "retryAttempts": "Retry attempts",
       "catalogColumns": "Cards per row",
       "catalogPageSize": "Items per page",
+      "catalogSort": "Sort order",
       "pageSizeOption": "{{count}} per page",
       "pageJump": "Go to",
       "goToPage": "Go to page",

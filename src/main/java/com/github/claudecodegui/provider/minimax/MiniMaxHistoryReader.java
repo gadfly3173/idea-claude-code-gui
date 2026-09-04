@@ -13,6 +13,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -501,10 +502,13 @@ public class MiniMaxHistoryReader {
     }
 
     private static void deleteRecursively(Path root) throws IOException {
-        if (root == null || !Files.exists(root)) {
+        // NOFOLLOW_LINKS: a (crafted) symlink inside a session dir must be
+        // deleted as a link, never recursed into — otherwise the contents of
+        // the directory it points at would be wiped along with the session.
+        if (root == null || !Files.exists(root, LinkOption.NOFOLLOW_LINKS)) {
             return;
         }
-        if (Files.isDirectory(root)) {
+        if (Files.isDirectory(root, LinkOption.NOFOLLOW_LINKS)) {
             try (DirectoryStream<Path> stream = Files.newDirectoryStream(root)) {
                 for (Path child : stream) {
                     deleteRecursively(child);

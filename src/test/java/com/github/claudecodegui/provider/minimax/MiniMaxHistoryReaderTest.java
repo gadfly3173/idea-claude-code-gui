@@ -2,8 +2,10 @@ package com.github.claudecodegui.provider.minimax;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
+import org.junit.Assume;
 import org.junit.Test;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -234,5 +236,28 @@ public class MiniMaxHistoryReaderTest {
         // Unknown or unsafe ids delete nothing.
         assertFalse(reader.deleteSession("mvs_missing", "/repo"));
         assertFalse(reader.deleteSession("../escape", "/repo"));
+    }
+
+    @Test
+    public void deleteSessionDoesNotFollowSymlinks() throws Exception {
+        Path home = Files.createTempDirectory("minimax-history-test");
+        Path sessionDir = writeSession(home, "10-20-30-000-session_link",
+                snapshot("mvs_link", "/repo", "t", "[]"));
+
+        // A symlink inside the session dir pointing outside must be removed as
+        // a link — the target's contents must survive the session deletion.
+        Path victimDir = Files.createDirectory(home.resolve("victim"));
+        Path victimFile = Files.writeString(victimDir.resolve("keep.txt"), "keep");
+        try {
+            Files.createSymbolicLink(sessionDir.resolve("linked-dir"), victimDir);
+        } catch (UnsupportedOperationException | IOException | SecurityException e) {
+            Assume.assumeTrue("symlinks not supported on this platform", false);
+        }
+
+        MiniMaxHistoryReader reader = new MiniMaxHistoryReader(home, new Gson());
+        assertTrue(reader.deleteSession("mvs_link", "/repo"));
+        assertFalse(Files.exists(sessionDir));
+        assertTrue("symlink target contents must survive session deletion",
+                Files.exists(victimFile));
     }
 }

@@ -36,7 +36,7 @@ const PLAN_MODE_ALLOWED_TOOLS = new Set([
  *
  * MCP tool names are allowlisted by their complete name. An MCP server can choose any action
  * name, so action prefixes are not enough to prove that a tool is side-effect free. Unknown or
- * ambiguous MCP tools fall through to 'ask' (default mode) or 'deny' (plan mode), safe by default.
+ * ambiguous MCP tools fall through to 'ask' (both default and plan mode), safe by default.
  */
 const READ_ONLY_MCP_TOOLS = new Set([
   'mcp__ace-tool__search_context',
@@ -287,9 +287,22 @@ export function createPreToolUseHook(permissionModeState, cwd = null, onModeChan
       }
 
       // Step 6: Yield known read-only MCP tools to the SDK (see isReadOnlyMcpTool).
-      // Destructive/ambiguous MCP tools fall through to the plan-mode deny below — plan mode is read-only.
       if (isReadOnlyMcpTool(toolName)) {
         return YIELD_TO_SDK;
+      }
+
+      // Step 7: Unknown MCP tools cannot be proven side-effect free from their
+      // names, but a hard deny makes every read-only third-party MCP server
+      // unusable in plan mode. Ask instead — the user confirms via the same
+      // can_use_tool dialog that plan mode already uses for Edit/Write/Bash.
+      if (typeof toolName === 'string' && toolName.startsWith('mcp__')) {
+        return {
+          hookSpecificOutput: {
+            hookEventName: 'PreToolUse',
+            permissionDecision: 'ask',
+            permissionDecisionReason: 'Plan mode: unrecognized MCP tool — approve only if it is read-only.'
+          }
+        };
       }
 
       // Everything else is blocked in plan mode

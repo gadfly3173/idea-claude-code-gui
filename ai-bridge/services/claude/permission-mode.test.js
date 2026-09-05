@@ -179,13 +179,15 @@ test('plan mode: read-only MCP tool yields "continue"', async () => {
   assert.equal(result?.continue, true);
 });
 
-test('plan mode: non-read-only MCP tool is denied (plan mode is read-only; must not be auto-yielded)', async () => {
+test('plan mode: unknown MCP tools return "ask" so read-only third-party servers stay usable', async () => {
   const hook = makeHook('plan');
-  // The old blocklist yielded these to the SDK during plan mode; a destructive MCP tool must
-  // instead fall through to the plan-mode deny.
+  // Names cannot prove an MCP tool is side-effect free, so these must not yield to
+  // the SDK — but a hard deny would make every unlisted read-only MCP server unusable
+  // in plan mode. 'ask' routes to the same can_use_tool dialog plan mode already uses
+  // for Edit/Write/Bash; the user decides.
   for (const toolName of ['mcp__fs__delete_file', 'mcp__shell__run_command', 'mcp__some-server__lookup']) {
     const result = await hook({ tool_name: toolName, tool_input: {} });
-    assert.equal(result?.hookSpecificOutput?.permissionDecision, 'deny', `expected ${toolName} to be denied`);
+    assert.equal(result?.hookSpecificOutput?.permissionDecision, 'ask', `expected ${toolName} to ask`);
   }
 });
 

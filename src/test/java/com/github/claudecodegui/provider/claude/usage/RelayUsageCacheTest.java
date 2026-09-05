@@ -48,6 +48,21 @@ public class RelayUsageCacheTest {
         assertNotNull(RelayUsageCache.fresh("account-16", 1000L));
     }
 
+    /** Keep frequently read accounts from being retired by newer probes. */
+    @Test
+    public void read_keepsActiveAccountsFromBeingRetired() {
+        RelayUsageCache.store("busy", payload(1), 1000L);
+        for (int i = 0; i < 15; i++) {
+            RelayUsageCache.store("other-" + i, payload(i), 1000L);
+        }
+        // "busy" is the eldest of 16 entries but still being polled.
+        assertNotNull(RelayUsageCache.fresh("busy", 1000L));
+        RelayUsageCache.store("other-15", payload(15), 1000L);
+        assertNotNull(RelayUsageCache.fresh("busy", 1000L));
+        assertNull(RelayUsageCache.fresh("other-0", 1000L));
+        assertNotNull(RelayUsageCache.fresh("other-15", 1000L));
+    }
+
     /** Prevent callers and stale flags from changing stored payloads. */
     @Test
     public void cache_keepsAccountSnapshotsAndReturnedCopiesIndependent() {

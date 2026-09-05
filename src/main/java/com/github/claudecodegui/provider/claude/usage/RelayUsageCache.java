@@ -34,6 +34,7 @@ final class RelayUsageCache {
         Entry c = entries.get(key);
         long age = age(nowMs, c);
         if (age >= 0 && age < TTL_MS) {
+            touch(key, c);
             return c.payload.deepCopy();
         }
         return null;
@@ -47,6 +48,7 @@ final class RelayUsageCache {
         Entry c = entries.get(key);
         long age = age(nowMs, c);
         if (age >= 0 && age < STALE_MAX_MS) {
+            touch(key, c);
             JsonObject copy = c.payload.deepCopy();
             copy.addProperty("stale", true);
             return copy;
@@ -71,6 +73,12 @@ final class RelayUsageCache {
     /** Test-only: drop the cached payload. */
     static synchronized void clearForTests() {
         entries.clear();
+    }
+
+    /** Refresh insertion order on a read hit so active accounts survive eviction. */
+    private static void touch(String key, Entry entry) {
+        entries.remove(key);
+        entries.put(key, entry);
     }
 
     private static long age(long nowMs, Entry entry) {

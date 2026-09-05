@@ -68,20 +68,6 @@ import { getClaudeCliPathOverride } from '../../utils/claude-cli-path.js';
 
 const SUPPORTED_EFFORT_LEVELS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
 
-// Backstop for the foreign-result skip in executeTurn: that skip assumes a
-// real run always emits output before its result. If a turn legitimately
-// produces zero messages before its result, its own result is misclassified
-// as foreign and skipped — without this idle backstop the take() loop would
-// hang forever. When armed, any message arriving for the turn disarms it; on
-// expiry the turn is settled empty (see the skip branch below).
-const FOREIGN_RESULT_IDLE_BACKSTOP_MS = 60_000;
-// Marker set on the synthetic result the backstop pushes so the foreign-result
-// check lets it through and ends the turn.
-const IDLE_BACKSTOP_RESULT = Symbol('idleBackstopResult');
-// Test hook (see __testing): tests shrink the backstop instead of mocking
-// timers globally, which would also intercept the reader/settle helpers.
-let foreignResultIdleBackstopMs = FOREIGN_RESULT_IDLE_BACKSTOP_MS;
-
 function resolveReasoningEffort(params) {
   const effort = typeof params.reasoningEffort === 'string'
     ? params.reasoningEffort.trim()
@@ -284,17 +270,6 @@ _sessionCleanupTimer.unref();
     turnMeta.state = turnState;
   }
 
-  // Idle backstop timer armed when a foreign bare-success result is skipped
-  // (see the result branch below). Must be cleared on any turn activity and
-  // when the turn ends, or it would settle a later turn by mistake.
-  let foreignResultIdleTimer = null;
-  const disarmForeignResultIdleBackstop = () => {
-    if (foreignResultIdleTimer !== null) {
-      clearTimeout(foreignResultIdleTimer);
-      foreignResultIdleTimer = null;
-    }
-  };
-
   try {
     beginRuntimeTurn(runtime);
     // Scope the abort flag to the turn that aborted: it is set by
@@ -345,11 +320,6 @@ _sessionCleanupTimer.unref();
       touchRuntime(runtime);
       const msg = next.value;
 
-      // Any arriving message proves the pipe is alive, so disarm the idle
-      // backstop armed by the foreign-result skip below. The skip re-arms it
-      // when this message turns out to be another foreign bare result.
-      disarmForeignResultIdleBackstop();
-
       if (turnState.streamingEnabled && !turnState.streamStarted) {
         process.stdout.write('[STREAM_START]\n');
         turnState.streamStarted = true;
@@ -362,6 +332,14 @@ _sessionCleanupTimer.unref();
       // session stream, otherwise the subagent's internals pollute the main chat.
       // task_notification (type:'system') has no parent_tool_use_id and is preserved.
       if (msg?.parent_tool_use_id) {
+        continue;
+      }
+
+      // A result with task-notification origin belongs to a background follow-up
+      // rather than the user message currently being consumed. The SDK forwards
+      // this provenance specifically so hosts can keep it out of the main turn.
+      if (msg?.type === 'result' && msg.origin?.kind === 'task-notification') {
+        console.log('[LIFECYCLE] Skipping task-notification result for active user turn');
         continue;
       }
 
@@ -386,17 +364,6 @@ _sessionCleanupTimer.unref();
           console.log('[LIFECYCLE] In-turn task-notification message for anonymous runtime, consuming silently');
         }
         continue;
-      }
-
-      // Substantive output (assistant / user / stream_event) belongs to THIS
-      // turn, so a later result is ours. A bare SUCCESS result arriving with
-      // sawTurnMessage still false is provably foreign (a real run emits output
-      // before its result) and is skipped below rather than ending the turn
-      // empty and seeding the one-behind shift. system/control messages are NOT
-      // counted: a turn almost always opens with a system session_id message,
-      // so counting it would defang the foreign-result skip in production.
-      if (msg?.type === 'assistant' || msg?.type === 'user' || msg?.type === 'stream_event') {
-        turnState.sawTurnMessage = true;
       }
 
       if (msg?.type === 'stream_event' && turnState.streamingEnabled) {
@@ -435,47 +402,8 @@ _sessionCleanupTimer.unref();
           // failure reaches the UI instead of a generic fallback.
           throw new Error(extractResultError(msg));
         }
-        // Defense in depth for the boundary the quiescence gate cannot close: a
-        // foreign run whose closing SUCCESS result is read only AFTER this sink
-        // opened. With no prior turn output (sawTurnMessage still false) it is
-        // provably not ours — a real run always emits output before its result —
-        // so skip it instead of ending the turn empty and seeding the one-behind
-        // shift. The background run still renders via the inter-turn
-        // session_updated path (#1305).
-        if (!turnState.sawTurnMessage && msg[IDLE_BACKSTOP_RESULT] !== true) {
-          console.log('[LIFECYCLE] Skipping foreign bare-success result (no prior turn output this turn)');
-          // The "real run emits output first" assumption fails for a turn that
-          // legitimately produces zero messages: its own result would be
-          // misclassified as foreign and skipped, leaving take() parked
-          // forever. Arm an idle backstop that settles the turn empty if no
-          // message belonging to this turn arrives in time.
-          foreignResultIdleTimer = setTimeout(() => {
-            foreignResultIdleTimer = null;
-            console.warn('[LIFECYCLE] Foreign-result idle backstop fired: no turn output within '
-              + foreignResultIdleBackstopMs + 'ms of skipping a foreign result; settling the turn empty'
-              + ' sessionId=' + (turnState.finalSessionId || runtime.sessionId || requestContext.requestedSessionId || '(none)')
-              + ' epoch=' + (requestContext.runtimeSessionEpoch || runtime.runtimeSessionEpoch || '(none)'));
-            // Unblock the parked take() with a sentinel result that bypasses
-            // the foreign check above and ends this turn with empty output.
-            runtime.turnSink?.push({ type: 'result', is_error: false, [IDLE_BACKSTOP_RESULT]: true });
-          }, foreignResultIdleBackstopMs);
-          // Do not unref: this timer is the only handle keeping a silent turn
-          // (and node:test) alive until the backstop settles it. Unref'ing it
-          // lets the event loop drain while executeTurn is still parked on
-          // take(), which cancels remaining tests with
-          // "Promise resolution is still pending but the event loop has already resolved".
-          continue;
-        }
-        // A task_notification for a background (run_in_background) Agent that
-        // settles AFTER this result cannot ride the in-turn [MESSAGE] stream:
-        // executeTurn breaks here and clears turnSink in the finally below
-        // (synchronously, before the perpetual reader's next query.next()
-        // resolves), so the perpetual reader routes that late event to the
-        // inter-turn daemon path (emitTaskEvent -> DaemonBridge "task_event"
-        // -> window.onTaskEvent). task_notification that settles BEFORE the
-        // result is still processed above in the in-turn [MESSAGE] stream.
-        // Both paths converge on window.onTaskEvent, which dedups by
-        // tool_use_id + observable fields - see DaemonBridge.handleDaemonEvent.
+        // A result belongs to the active user turn unless the SDK explicitly marks
+        // it as a background task follow-up above. Result-only turns are valid.
         break;
       }
     }
@@ -521,7 +449,6 @@ _sessionCleanupTimer.unref();
       }
     }
   } finally {
-    disarmForeignResultIdleBackstop();
     endRuntimeTurn(runtime);
     // Clear turnSink after endRuntimeTurn (reverse of creation order)
     runtime.turnSink = null;
@@ -778,12 +705,6 @@ export async function setPermissionModePersistent(params = {}) {
     return;
   }
 
-  if (runtime.currentPermissionMode === targetPermissionMode) {
-    log(`setPermissionModePersistent no-op: already ${targetPermissionMode}`
-      + ` sessionId=${sessionId || '(none)'} epoch=${epoch || '(none)'}`);
-    return;
-  }
-
   // Transition mechanics are centralized in applyPermissionModeToRuntime so the
   // hook path, applyDynamicControls, and this daemon entry point follow one rule
   // set: a Full Auto (bypassPermissions) transition marks the runtime for rebuild
@@ -795,6 +716,13 @@ export async function setPermissionModePersistent(params = {}) {
     (targetPermissionMode === 'bypassPermissions')
       !== (runtime.currentPermissionMode === 'bypassPermissions');
   const applied = await applyPermissionModeToRuntime(runtime, targetPermissionMode);
+  if (runtime.closed
+      || (sessionId && getRuntimeForSession(sessionId) !== runtime)
+      || (!sessionId && getActiveTurnRuntime() !== runtime)) {
+    log(`setPermissionModePersistent ignored stale runtime result sessionId=${sessionId || '(none)'}`
+      + ` epoch=${epoch || '(none)'} mode=${targetPermissionMode}`);
+    return;
+  }
   if (!applied) {
     log(`setPermissionMode failed, local state left unchanged (will resync next turn):`
       + ` sessionId=${sessionId || '(none)'} epoch=${epoch || '(none)'}`
@@ -936,11 +864,6 @@ export const __testing = {
   },
   setQueryFn(queryFn) {
     setCachedQueryFn(queryFn);
-  },
-  setForeignResultIdleBackstopMs(ms) {
-    foreignResultIdleBackstopMs = typeof ms === 'number' && ms > 0
-      ? ms
-      : FOREIGN_RESULT_IDLE_BACKSTOP_MS;
   },
   async buildRequestContext(params = {}, withAttachments = false, overrides = {}) {
     return buildRequestContext(params, withAttachments, overrides);

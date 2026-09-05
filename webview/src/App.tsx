@@ -433,7 +433,8 @@ const App = () => {
     interruptSession,
   } = useMessageSender({
     t, addToast,
-    currentProvider, selectedModel, permissionMode, reasoningEffort, selectedAgent, codexFastMode, dshPreset,
+    currentProvider, selectedModel, permissionMode, reasoningEffort, selectedAgent, codexFastMode,
+    codexNativeAutoReviewAvailable, dshPreset,
     sdkStatusLoading, currentSdkInstalled,
     sentAttachmentsRef, chatInputRef, messagesContainerRef,
     isUserAtBottomRef, userPausedRef, isStreamingRef,

@@ -30,6 +30,8 @@ public class RelayUsageEnvTest {
                 "{\"ANTHROPIC_MODEL\":\"glm-4.7\",\"ANTHROPIC_DEFAULT_SONNET_MODEL\":\"other\"}")).model());
         assertEquals("sonnet-model", RelayUsageEnv.from(env(
                 "{\"ANTHROPIC_DEFAULT_SONNET_MODEL\":\"sonnet-model\",\"ANTHROPIC_DEFAULT_HAIKU_MODEL\":\"haiku\"}")).model());
+        assertEquals("fable-model", RelayUsageEnv.from(env(
+                "{\"ANTHROPIC_DEFAULT_FABLE_MODEL\":\"fable-model\"}")).model());
         assertNull(RelayUsageEnv.from(env("{}")).model());
     }
 

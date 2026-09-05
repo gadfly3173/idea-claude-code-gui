@@ -7,8 +7,6 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.intellij.openapi.diagnostic.Logger;
 
-import java.time.Instant;
-
 /**
  * Claude plan-usage snapshot builder + resolver.
  *
@@ -104,9 +102,8 @@ public final class ClaudePlanUsageService {
 
         // resetsAt is unix epoch SECONDS in the CLI schema (the CLI computes
         // `resetsAt - Date.now()/1000`), not millis — convert before use.
-        Long resetsAtSec = RelayUsageJson.asLong(rateLimitInfo, "resetsAt", "resets_at", "resetAt");
-        Long resetsAtMs = resetsAtSec != null ? resetsAtSec * 1000L : null;
-        String resetAt = resetsAtMs != null ? Instant.ofEpochMilli(resetsAtMs).toString() : null;
+        Long resetsAtMs = RelayUsageJson.asEpochMs(rateLimitInfo, "resetsAt", "resets_at", "resetAt");
+        String resetAt = resetsAtMs != null ? RelayUsageJson.epochMsToIso(resetsAtMs) : null;
         String periodType = periodTypeFromRateLimit(rateLimitInfo, resetsAtMs);
 
         JsonObject window = new JsonObject();

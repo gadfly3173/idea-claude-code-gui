@@ -4,6 +4,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -26,8 +27,12 @@ public final class ZaiUsageVendor implements RelayUsageVendor {
 
     @Override
     public boolean matches(String host, String path) {
-        return host.equals("z.ai") || host.endsWith(".z.ai")
-                || host.equals("open.bigmodel.cn") || host.endsWith(".bigmodel.cn");
+        if (host == null) {
+            return false;
+        }
+        String normalizedHost = host.toLowerCase(java.util.Locale.ROOT);
+        return normalizedHost.equals("z.ai") || normalizedHost.endsWith(".z.ai")
+                || normalizedHost.equals("open.bigmodel.cn") || normalizedHost.endsWith(".bigmodel.cn");
     }
 
     @Override
@@ -72,6 +77,9 @@ public final class ZaiUsageVendor implements RelayUsageVendor {
             pct = RelayUsageJson.clampPct(pct);
             String type = RelayUsageJson.asString(lim, "type");
             String period = period(lim, type);
+            if (period == null) {
+                continue;
+            }
             Long resetsAtMs = RelayUsageJson.asEpochMs(lim, "nextResetTime", "next_reset_time");
 
             JsonObject existing = byPeriod.get(period);
@@ -94,26 +102,28 @@ public final class ZaiUsageVendor implements RelayUsageVendor {
 
     /**
      * Map a limit to a window id/period. Observed payloads use unit 3=hours
-     * (number=5 → 5h), unit 6=weeks (number=1 → 7d) and unit 4=days (number=7
-     * → 7d). The {@code number} field is assumed to match those shapes — a
-     * hypothetical unit=4/number=1 (1-day) window would still be labelled 7d.
+     * (number=5 → 5h), unit 6=weeks (number=1 → 7d) and unit 4=weeks expressed
+     * as seven days (number=7 → 7d). Unknown or inconsistent shapes are ignored
+     * rather than guessed.
      */
     static String period(JsonObject lim, String type) {
-        if (type != null && type.toUpperCase().contains("TIME")) {
+        if (type != null && type.toUpperCase(Locale.ROOT).contains("TIME")) {
             return "monthly";
         }
         Integer unit = RelayUsageJson.asInt(lim, "unit");
-        if (unit == null) {
-            return "5h";
+        Integer number = RelayUsageJson.asInt(lim, "number");
+        if (unit == null || number == null) {
+            return null;
         }
         switch (unit) {
             case 3:
-                return "5h";
+                return number == 5 ? "5h" : null;
             case 6:
+                return number == 1 ? "7d" : null;
             case 4:
-                return "7d";
+                return number == 7 ? "7d" : null;
             default:
-                return "5h";
+                return null;
         }
     }
 }

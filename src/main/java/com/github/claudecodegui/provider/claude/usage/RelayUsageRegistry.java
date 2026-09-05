@@ -5,6 +5,9 @@ import com.google.gson.JsonObject;
 import com.intellij.openapi.diagnostic.Logger;
 
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.List;
 import java.util.Locale;
 
@@ -44,9 +47,12 @@ public final class RelayUsageRegistry {
         if (vendor == null || env.token() == null) {
             return null;
         }
-        // Key the cache by vendor + endpoint + credential so an account/base-URL
-        // switch never serves the previous account's quota.
-        String cacheKey = vendor.id() + '\n' + env.baseUrl() + '\n' + env.token();
+        // Keep credentials out of long-lived cache objects while retaining account isolation.
+        String cacheKey = vendor.id() + '\n' + canonicalBaseUrl(env.baseUrl()) + '\n' + sha256(env.token());
+        // MiniMax selects a model-specific quota before the payload reaches the cache.
+        if ("minimax".equals(vendor.id())) {
+            cacheKey += '\n' + (env.model() == null ? "" : env.model());
+        }
 
         JsonObject fresh = RelayUsageCache.fresh(cacheKey, nowMs);
         if (fresh != null) {
@@ -87,6 +93,44 @@ public final class RelayUsageRegistry {
             }
         }
         return null;
+    }
+
+    private static String canonicalBaseUrl(String baseUrl) {
+        try {
+            URI u = URI.create(baseUrl.trim());
+            String scheme = u.getScheme().toLowerCase(Locale.ROOT);
+            String host = u.getHost();
+            if (host == null) {
+                return baseUrl.trim();
+            }
+            host = host.toLowerCase(Locale.ROOT);
+            int port = u.getPort();
+            boolean defaultPort = ("http".equals(scheme) && port == 80)
+                    || ("https".equals(scheme) && port == 443);
+            String authorityHost = host.contains(":") && !host.startsWith("[")
+                    ? "[" + host + "]" : host;
+            StringBuilder out = new StringBuilder(scheme).append("://").append(authorityHost);
+            if (port != -1 && !defaultPort) {
+                out.append(':').append(port);
+            }
+            return out.toString();
+        } catch (RuntimeException ignored) {
+            return baseUrl == null ? "" : baseUrl.trim();
+        }
+    }
+
+    private static String sha256(String value) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(value.getBytes(StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder(digest.length * 2);
+            for (byte b : digest) {
+                hex.append(String.format(Locale.ROOT, "%02x", b & 0xff));
+            }
+            return hex.toString();
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 is unavailable", e);
+        }
     }
 
     /** Registered vendors, in match order (tests). */

@@ -44,6 +44,7 @@ public final class RelayUsageEnv {
         String model = null;
         for (String key : new String[]{
                 "ANTHROPIC_MODEL",
+                "ANTHROPIC_DEFAULT_FABLE_MODEL",
                 "ANTHROPIC_DEFAULT_OPUS_MODEL",
                 "ANTHROPIC_DEFAULT_SONNET_MODEL",
                 "ANTHROPIC_DEFAULT_HAIKU_MODEL"}) {

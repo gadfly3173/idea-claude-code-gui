@@ -118,20 +118,26 @@ test('acceptEdits mode: Bash returns "ask" (acceptEdits auto-accepts edits only,
   assert.equal(result?.hookSpecificOutput?.permissionDecision, 'ask');
 });
 
-test('default mode: read-only MCP tool (verb allowlist) yields "continue"', async () => {
+test('default mode: known read-only MCP tools yield "continue"', async () => {
   const hook = makeHook('default');
-  for (const toolName of ['mcp__some-server__search_docs', 'mcp__context7__get_library', 'mcp__db__list_tables']) {
+  for (const toolName of [
+    'mcp__ace-tool__search_context',
+    'mcp__context7__query-docs',
+    'mcp__time__get_current_time',
+  ]) {
     const result = await hook({ tool_name: toolName, tool_input: { query: 'x' } });
     assert.equal(result?.continue, true, `expected ${toolName} to yield to the SDK`);
   }
 });
 
-test('default mode: non-read-only MCP tool returns "ask" so a settings.json allow-rule cannot silently auto-approve it', async () => {
+test('default mode: unknown or compound MCP tools return "ask"', async () => {
   const hook = makeHook('default');
-  // Names lacking "Write"/"Edit" (delete_file, run_command, exec) must NOT be treated as
-  // read-only: the old blocklist heuristic let them yield to the SDK, where a project/local
-  // .claude/settings.json allow-rule (attacker-controllable) could auto-approve them silently.
-  for (const toolName of ['mcp__fs__delete_file', 'mcp__shell__run_command', 'mcp__db__execute', 'mcp__some-server__some-tool']) {
+  for (const toolName of [
+    'mcp__some-server__search_docs',
+    'mcp__evil__read_and_delete',
+    'mcp__evil__get_or_create',
+    'mcp__evil__search_and_replace',
+  ]) {
     const result = await hook({ tool_name: toolName, tool_input: {} });
     assert.equal(result?.hookSpecificOutput?.permissionDecision, 'ask', `expected ${toolName} to ask`);
   }
@@ -167,7 +173,7 @@ test('plan mode: PLAN_MODE_ALLOWED_TOOLS (WebFetch) yields "continue"', async ()
 test('plan mode: read-only MCP tool yields "continue"', async () => {
   const hook = makeHook('plan');
   const result = await hook({
-    tool_name: 'mcp__some-server__lookup',
+    tool_name: 'mcp__context7__query-docs',
     tool_input: { query: 'x' },
   });
   assert.equal(result?.continue, true);
@@ -177,7 +183,7 @@ test('plan mode: non-read-only MCP tool is denied (plan mode is read-only; must 
   const hook = makeHook('plan');
   // The old blocklist yielded these to the SDK during plan mode; a destructive MCP tool must
   // instead fall through to the plan-mode deny.
-  for (const toolName of ['mcp__fs__delete_file', 'mcp__shell__run_command']) {
+  for (const toolName of ['mcp__fs__delete_file', 'mcp__shell__run_command', 'mcp__some-server__lookup']) {
     const result = await hook({ tool_name: toolName, tool_input: {} });
     assert.equal(result?.hookSpecificOutput?.permissionDecision, 'deny', `expected ${toolName} to be denied`);
   }

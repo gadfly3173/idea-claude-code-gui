@@ -34,8 +34,8 @@ public final class KimiCodingUsageVendor implements RelayUsageVendor {
         // /coding path is the Coding Plan whose /v1/usages endpoint exists.
         // Must be matched before any future plain-kimi vendor. The segment
         // boundary matters: a hypothetical "/codingfoo" path is not the plan.
-        return "api.kimi.com".equals(host) && path != null
-                && (path.equals("/coding") || path.startsWith("/coding/"));
+        return "api.kimi.com".equalsIgnoreCase(host) && path != null
+                && (path.equalsIgnoreCase("/coding") || path.toLowerCase(java.util.Locale.ROOT).startsWith("/coding/"));
     }
 
     @Override

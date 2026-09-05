@@ -111,11 +111,11 @@ export function buildCodexCliEnvironment(baseEnv) {
     if (typeof rawValue !== 'string' || rawValue.length === 0) {
       continue;
     }
-    if (CODEX_CLI_ENV_BLOCKLIST.has(key)) {
+    const normalizedKey = key.toUpperCase();
+    if (CODEX_CLI_ENV_BLOCKLIST.has(normalizedKey)) {
       removedKeys.push(key);
       continue;
     }
-    const normalizedKey = key.toUpperCase();
     if (normalizedKey === CODEX_PROXY_ENV_OPT_IN ||
         (!inheritProxyEnvironment && PROXY_ENV_KEYS.has(normalizedKey))) {
       removedKeys.push(key);
@@ -176,10 +176,11 @@ export function normalizeCodexPermissionMode(mode) {
   if (!trimmed) {
     return 'default';
   }
-  if (trimmed.toLowerCase() === 'auto') {
+  const normalized = trimmed.toLowerCase();
+  if (normalized === 'auto') {
     return 'auto';
   }
-  if (trimmed === 'autoEdit') {
+  if (normalized === 'autoedit') {
     return 'acceptEdits';
   }
   return trimmed;

@@ -47,6 +47,12 @@ public class RelayUsageJsonTest {
         assertEquals(Long.valueOf(1759180800000L), RelayUsageJson.asEpochMs(o, "strSec"));
         assertNull(RelayUsageJson.asEpochMs(o, "missing"));
         assertNull(RelayUsageJson.asEpochMs(null, "sec"));
+        assertNull(RelayUsageJson.asEpochMs(com.google.gson.JsonParser.parseString("{\"v\":-1}").getAsJsonObject(), "v"));
+    }
+
+    @Test
+    public void capacityPayload_emptyWindowsReturnsNull() {
+        assertNull(RelayUsageJson.capacityPayload("test", List.of(), null));
     }
 
     @Test

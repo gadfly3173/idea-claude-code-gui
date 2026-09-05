@@ -200,7 +200,7 @@ export function useModelProviderState({ addToast, t }: UseModelProviderStateOpti
   const claudeSdkMeetsMinimum = sdkStatus?.['claude-sdk']?.meetsMinimumVersion;
   // Codex native auto review config is available in the verified @openai/codex-sdk 0.146.0 floor.
   const codexSdkMeetsMinimum = sdkStatus?.['codex-sdk']?.meetsMinimumVersion;
-  const codexNativeAutoReviewAvailable = codexSdkMeetsMinimum !== false;
+  const codexNativeAutoReviewAvailable = codexSdkMeetsMinimum === true;
 
   // A saved auto mode can outlive the SDK that supports it. Reset it before a
   // send can race the dependency-status response; otherwise the selected mode

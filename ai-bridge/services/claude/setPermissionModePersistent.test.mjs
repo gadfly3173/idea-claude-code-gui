@@ -1,3 +1,5 @@
+// Isolate credentials before the runtime caches the user's home directory.
+import './testing/cli-login-home.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -129,6 +131,37 @@ test('setPermissionModePersistent is a no-op when the mode is unchanged', async 
   assert.equal(calls, 0);
   assert.equal(runtime.currentPermissionMode, 'plan');
   assert.equal(runtime.permissionModeState.value, 'plan');
+});
+
+test('setPermissionModePersistent reapplies an original mode after a superseded transition', async () => {
+  const pending = [];
+  const runtime = createFakeRuntime({
+    currentPermissionMode: 'default',
+    setPermissionMode: (mode) => new Promise((resolve) => pending.push({ mode, resolve }))
+  });
+  __testing.setActiveTurnRuntime(runtime);
+
+  const first = setPermissionModePersistent({
+    sessionId: 'sess-1',
+    runtimeSessionEpoch: 'epoch-1',
+    permissionMode: 'acceptEdits'
+  });
+  const second = setPermissionModePersistent({
+    sessionId: 'sess-1',
+    runtimeSessionEpoch: 'epoch-1',
+    permissionMode: 'default'
+  });
+
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(pending.map((item) => item.mode), ['acceptEdits']);
+  pending[0].resolve();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(pending.map((item) => item.mode), ['acceptEdits', 'default']);
+
+  pending[1].resolve();
+  await Promise.all([first, second]);
+  assert.equal(runtime.currentPermissionMode, 'default');
+  assert.equal(runtime.permissionModeState.value, 'default');
 });
 
 test('setPermissionModePersistent leaves local state unchanged when the SDK call fails', async () => {

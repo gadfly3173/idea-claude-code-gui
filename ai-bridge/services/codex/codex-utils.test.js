@@ -54,9 +54,22 @@ test('does not enable proxy inheritance for false-like values', () => {
   ]);
 });
 
-test('normalizes native auto mode casing before dispatch', () => {
+test('removes Codex policy variables regardless of key casing', () => {
+  const result = buildCodexCliEnvironment({
+    codex_approval_policy: 'never',
+    CoDeX_SaNdBoX: 'danger-full-access',
+    SAFE_VALUE: 'kept'
+  });
+
+  assert.deepEqual(result.cliEnv, { SAFE_VALUE: 'kept' });
+  assert.deepEqual(result.removedKeys, ['codex_approval_policy', 'CoDeX_SaNdBoX']);
+});
+
+test('normalizes native auto mode casing and aliases before dispatch', () => {
   assert.equal(normalizeCodexPermissionMode('AUTO'), 'auto');
   assert.equal(normalizeCodexPermissionMode(' auto '), 'auto');
+  assert.equal(normalizeCodexPermissionMode('AUTOEDIT'), 'acceptEdits');
+  assert.equal(normalizeCodexPermissionMode(' AutoEdit '), 'acceptEdits');
 });
 
 test('requires Codex 0.146.0 or later for native auto review config', () => {

@@ -30,8 +30,12 @@ public final class MiniMaxUsageVendor implements RelayUsageVendor {
 
     @Override
     public boolean matches(String host, String path) {
-        return host.equals("minimaxi.com") || host.endsWith(".minimaxi.com")
-                || host.equals("minimax.io") || host.endsWith(".minimax.io");
+        if (host == null) {
+            return false;
+        }
+        String normalizedHost = host.toLowerCase(java.util.Locale.ROOT);
+        return normalizedHost.equals("minimaxi.com") || normalizedHost.endsWith(".minimaxi.com")
+                || normalizedHost.equals("minimax.io") || normalizedHost.endsWith(".minimax.io");
     }
 
     @Override

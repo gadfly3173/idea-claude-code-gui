@@ -81,15 +81,19 @@ public final class RelayUsageHttp {
             }
             boolean loopback = host.equalsIgnoreCase("localhost")
                     || host.equals("127.0.0.1")
-                    || host.equals("::1");
+                    || host.equals("::1")
+                    || host.equals("[::1]");
             if (!"https".equalsIgnoreCase(scheme)
                     && !("http".equalsIgnoreCase(scheme) && loopback)) {
                 return null;
             }
             int port = u.getPort();
+            String originHost = host.contains(":") && !host.startsWith("[")
+                    ? "[" + host + "]"
+                    : host;
             return port == -1
-                    ? scheme + "://" + host
-                    : scheme + "://" + host + ":" + port;
+                    ? scheme + "://" + originHost
+                    : scheme + "://" + originHost + ":" + port;
         } catch (Exception e) {
             return null;
         }

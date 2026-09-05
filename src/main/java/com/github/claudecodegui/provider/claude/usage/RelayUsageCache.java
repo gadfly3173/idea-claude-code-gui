@@ -2,20 +2,16 @@ package com.github.claudecodegui.provider.claude.usage;
 
 import com.google.gson.JsonObject;
 
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 /**
- * Payload cache shared by all relay usage vendors (one active account per
- * vendor at a time, so a single entry keyed by vendor + endpoint + credential
- * suffices).
+ * Payload cache shared by all relay usage vendors.
  *
- * <p>Serves three roles, mirroring the original z.ai-only cache:
- * <ul>
- *   <li><b>fresh</b> — probe result within {@link #TTL_MS}, served verbatim;</li>
- *   <li><b>stale</b> — last good payload after a failed probe, served for at
- *       most {@link #STALE_MAX_MS} and flagged {@code stale: true} so the UI can
- *       mark it, then given up on (a long outage must not masquerade as live
- *       data);</li>
- *   <li>cache misses simply fall through to the caller's fallback chain.</li>
- * </ul>
+ * <p>The cache is bounded because settings can contain multiple relay
+ * credentials over the lifetime of one IDE process. Payloads are copied at the
+ * boundary so callers cannot mutate cached data.
  */
 final class RelayUsageCache {
 
@@ -23,25 +19,34 @@ final class RelayUsageCache {
     static final long TTL_MS = 115_000L;
     /** Max age for serving a stale payload after repeated probe failures. */
     static final long STALE_MAX_MS = 30 * 60_000L;
+    private static final int MAX_ENTRIES = 16;
 
-    private static volatile Entry entry;
+    private static final Map<String, Entry> entries = new LinkedHashMap<>();
 
     private RelayUsageCache() {
     }
 
     /** Fresh cached payload for {@code key}, or null when absent/expired. */
-    static JsonObject fresh(String key, long nowMs) {
-        Entry c = entry;
-        if (c != null && c.key.equals(key) && nowMs - c.atMs < TTL_MS) {
+    static synchronized JsonObject fresh(String key, long nowMs) {
+        if (key == null) {
+            return null;
+        }
+        Entry c = entries.get(key);
+        long age = age(nowMs, c);
+        if (age >= 0 && age < TTL_MS) {
             return c.payload.deepCopy();
         }
         return null;
     }
 
     /** Stale cached payload (flagged) for {@code key} within {@link #STALE_MAX_MS}, or null. */
-    static JsonObject stale(String key, long nowMs) {
-        Entry c = entry;
-        if (c != null && c.key.equals(key) && nowMs - c.atMs < STALE_MAX_MS) {
+    static synchronized JsonObject stale(String key, long nowMs) {
+        if (key == null) {
+            return null;
+        }
+        Entry c = entries.get(key);
+        long age = age(nowMs, c);
+        if (age >= 0 && age < STALE_MAX_MS) {
             JsonObject copy = c.payload.deepCopy();
             copy.addProperty("stale", true);
             return copy;
@@ -50,23 +55,38 @@ final class RelayUsageCache {
     }
 
     /** Persist a successful probe result for {@code key}. */
-    static void store(String key, JsonObject payload, long nowMs) {
-        entry = new Entry(nowMs, key, payload);
+    static synchronized void store(String key, JsonObject payload, long nowMs) {
+        if (key == null || payload == null) {
+            return;
+        }
+        // Refresh insertion order so eviction keeps the most recently fetched quotas.
+        entries.remove(key);
+        entries.put(key, new Entry(nowMs, payload.deepCopy()));
+        while (entries.size() > MAX_ENTRIES) {
+            Iterator<String> iterator = entries.keySet().iterator();
+            entries.remove(iterator.next());
+        }
     }
 
     /** Test-only: drop the cached payload. */
-    static void clearForTests() {
-        entry = null;
+    static synchronized void clearForTests() {
+        entries.clear();
+    }
+
+    private static long age(long nowMs, Entry entry) {
+        if (entry == null || nowMs < entry.atMs) {
+            return -1L;
+        }
+        long age = nowMs - entry.atMs;
+        return age < 0 ? Long.MAX_VALUE : age;
     }
 
     private static final class Entry {
         final long atMs;
-        final String key;
         final JsonObject payload;
 
-        Entry(long atMs, String key, JsonObject payload) {
+        Entry(long atMs, JsonObject payload) {
             this.atMs = atMs;
-            this.key = key;
             this.payload = payload;
         }
     }

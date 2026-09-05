@@ -5,6 +5,8 @@ import com.google.gson.JsonParser;
 import org.junit.After;
 import org.junit.Test;
 
+import java.util.Locale;
+
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
@@ -34,7 +36,19 @@ public class ZaiUsageVendorTest {
         assertFalse(vendor.matches("api.anthropic.com", ""));
     }
 
-    // ===== response parsing =====
+    @Test
+    public void matches_isNullSafeAndCaseInsensitive() {
+        assertFalse(vendor.matches(null, "/api/anthropic"));
+        assertTrue(vendor.matches("API.Z.AI", "/api/anthropic"));
+    }
+
+    @Test
+    public void parseQuota_ignoresUnknownWindowShape() {
+        JsonObject body = JsonParser.parseString("{\"data\":{\"limits\":["
+                + "{\"type\":\"CREDIT_LIMIT\",\"unit\":4,\"number\":1,\"percentage\":41}]}}")
+                .getAsJsonObject();
+        assertNull(ZaiUsageVendor.parseQuota(body));
+    }
 
     @Test
     public void parseQuota_maps5h7dWindowsAndLevel() {
@@ -75,6 +89,23 @@ public class ZaiUsageVendorTest {
         JsonObject payload = ZaiUsageVendor.parseQuota(body);
         assertEquals("monthly", payload.getAsJsonArray("windows").get(0).getAsJsonObject().get("id").getAsString());
         assertEquals("pro", payload.get("level").getAsString());
+    }
+
+    @Test
+    public void parseQuota_timeLimitIsLocaleIndependent() {
+        Locale previous = Locale.getDefault();
+        try {
+            Locale.setDefault(Locale.forLanguageTag("tr-TR"));
+            JsonObject body = JsonParser.parseString("""
+                    {"data":{"limits":[
+                      {"type":"time_limit","unit":4,"number":1,"percentage":55}
+                    ]}}
+                    """).getAsJsonObject();
+            assertEquals("monthly", ZaiUsageVendor.parseQuota(body)
+                    .getAsJsonArray("windows").get(0).getAsJsonObject().get("id").getAsString());
+        } finally {
+            Locale.setDefault(previous);
+        }
     }
 
     @Test

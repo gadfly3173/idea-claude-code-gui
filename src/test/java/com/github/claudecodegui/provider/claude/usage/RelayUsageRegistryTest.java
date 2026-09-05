@@ -92,6 +92,23 @@ public class RelayUsageRegistryTest {
     }
 
     @Test
+    public void resolve_cacheKeyUsesProbeOriginNotIgnoredPathOrQuery() {
+        int[] calls = {0};
+        RelayUsageHttp.setTransportForTests((url, headers) -> {
+            calls[0]++;
+            return zaiBody(10);
+        });
+        long t0 = 1_000_000L;
+
+        RelayUsageRegistry.resolve(ZaiUsageVendorTest.settings(
+                "https://api.z.ai/api/anthropic?token=secret", "account-a"), t0);
+        RelayUsageRegistry.resolve(ZaiUsageVendorTest.settings(
+                "https://api.z.ai/another-path?token=secret", "account-a"), t0 + 1);
+
+        assertEquals(1, calls[0]);
+    }
+
+    @Test
     public void resolve_staleFallbackOnProbeFailure() {
         boolean[] fail = {false};
         RelayUsageHttp.setTransportForTests((url, headers) -> {
@@ -120,6 +137,35 @@ public class RelayUsageRegistryTest {
         RelayUsageHttp.setTransportForTests((url, headers) -> new JsonObject());
         assertNull(RelayUsageRegistry.resolve(
                 ZaiUsageVendorTest.settings("https://api.z.ai/api/anthropic", "t"), 1000L));
+    }
+
+    @Test
+    public void cache_nullKeyIsHandledAsMiss() {
+        assertNull(RelayUsageCache.fresh(null, 1000L));
+        assertNull(RelayUsageCache.stale(null, 1000L));
+        RelayUsageCache.store(null, new JsonObject(), 1000L);
+    }
+
+    /** Keep per-model quotas separate even when the account and endpoint match. */
+    @Test
+    public void resolve_remembersEachMiniMaxModelQuota() {
+        int[] calls = {0};
+        RelayUsageHttp.setTransportForTests((url, headers) -> {
+            calls[0]++;
+            return JsonParser.parseString("""
+                    {"model_remains":[
+                      {"model_name":"MiniMax-M3","current_interval_remaining_percent":10},
+                      {"model_name":"general","current_interval_remaining_percent":90}
+                    ]}
+                    """).getAsJsonObject();
+        });
+        JsonObject settings = ZaiUsageVendorTest.settings("https://api.minimax.io/v1", "account-a");
+        assertEquals(10, RelayUsageRegistry.resolve(settings, 1000L).get("capacity_pct").getAsDouble(), 0.01);
+        settings.getAsJsonObject("env").addProperty("ANTHROPIC_MODEL", "MiniMax-M3");
+        assertEquals(90, RelayUsageRegistry.resolve(settings, 1001L).get("capacity_pct").getAsDouble(), 0.01);
+        settings.getAsJsonObject("env").remove("ANTHROPIC_MODEL");
+        assertEquals(10, RelayUsageRegistry.resolve(settings, 1002L).get("capacity_pct").getAsDouble(), 0.01);
+        assertEquals(2, calls[0]);
     }
 
     private static JsonObject zaiBody(double pct) {

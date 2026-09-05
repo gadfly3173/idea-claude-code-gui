@@ -103,7 +103,7 @@ public final class RelayUsageJson {
     /** Epoch timestamp among {@code keys}, normalized to milliseconds, or null. */
     public static Long asEpochMs(JsonObject o, String... keys) {
         Long v = asLong(o, keys);
-        if (v == null) {
+        if (v == null || v < 0) {
             return null;
         }
         return v < EPOCH_SECONDS_CEILING ? v * 1000L : v;
@@ -111,6 +111,9 @@ public final class RelayUsageJson {
 
     /** Render epoch milliseconds as an ISO-8601 instant (the payload reset_at format). */
     public static String epochMsToIso(long epochMs) {
+        if (epochMs < 0) {
+            return null;
+        }
         return Instant.ofEpochMilli(epochMs).toString();
     }
 
@@ -125,7 +128,10 @@ public final class RelayUsageJson {
         w.addProperty("id", id);
         w.addProperty("used_pct", usedPct);
         if (resetAtMs != null) {
-            w.addProperty("reset_at", epochMsToIso(resetAtMs));
+            String resetAt = epochMsToIso(resetAtMs);
+            if (resetAt != null) {
+                w.addProperty("reset_at", resetAt);
+            }
         }
         w.addProperty("period_type", id);
         return w;
@@ -139,6 +145,9 @@ public final class RelayUsageJson {
      * optional and vendor-specific.
      */
     public static JsonObject capacityPayload(String source, Collection<JsonObject> windows, String level) {
+        if (windows == null || windows.isEmpty()) {
+            return null;
+        }
         Double primary5h = null;
         double maxPct = 0;
         for (JsonObject w : windows) {

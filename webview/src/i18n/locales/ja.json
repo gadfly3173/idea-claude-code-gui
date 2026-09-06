@@ -1582,16 +1582,20 @@
         "label": "Haiku 4.5",
         "description": "Haiku 4.5 · 迅速な回答に最速"
       },
-      "opus48": {
-        "label": "Opus 4.8",
-        "description": "Opus 4.8 · 前世代の Opus モデル"
+      "fable51": {
+        "label": "Fable 5.1",
+        "description": "Fable 5.1 · 最も強力 · Mythosクラス"
       },
       "fable5": {
         "label": "Fable 5",
-        "description": "Fable 5 · 最も強力 · Mythosクラス"
+        "description": "Fable 5 · 前世代の Fable モデル"
       }
     },
     "codex": {
+      "gpt6astra": {
+        "label": "GPT-6 Astra",
+        "description": "自律的なコンピュータ操作と長時間のエージェントタスク向けの新世代フラッグシップ"
+      },
       "gpt56sol": {
         "label": "GPT-5.6 Sol",
         "description": "複雑なプロフェッショナル業務向けのフロンティアモデル"

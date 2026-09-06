@@ -25,10 +25,12 @@ public class SessionStateTest {
     }
 
     @Test
-    public void setModelMigratesRetiredOpus46ToOpus48() {
+    public void setModelMigratesRetiredOpus46ToOpus5() {
         SessionState state = new SessionState();
         state.setModel("claude-opus-4-6");
-        Assert.assertEquals("claude-opus-4-8", state.getModel());
+        Assert.assertEquals("claude-opus-5", state.getModel());
+        state.setModel("claude-opus-4-8");
+        Assert.assertEquals("claude-opus-5", state.getModel());
     }
 
     @Test
@@ -43,8 +45,8 @@ public class SessionStateTest {
         SessionState state = new SessionState();
         state.setModel("claude-sonnet-5");
         Assert.assertEquals("claude-sonnet-5", state.getModel());
-        state.setModel("claude-opus-4-8[1m]");
-        Assert.assertEquals("claude-opus-4-8[1m]", state.getModel());
+        state.setModel("claude-fable-5-1[1m]");
+        Assert.assertEquals("claude-fable-5-1[1m]", state.getModel());
     }
 
     @Test

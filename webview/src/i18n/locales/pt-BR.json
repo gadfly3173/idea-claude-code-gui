@@ -1721,13 +1721,13 @@
         "label": "Haiku 4.5",
         "description": "Haiku 4.5 · Mais rápido para respostas rápidas"
       },
-      "opus48": {
-        "label": "Opus 4.8",
-        "description": "Opus 4.8 · Geração anterior do Opus"
+      "fable51": {
+        "label": "Fable 5.1",
+        "description": "Fable 5.1 · O mais poderoso · classe Mythos"
       },
       "fable5": {
         "label": "Fable 5",
-        "description": "Fable 5 · O mais poderoso · classe Mythos"
+        "description": "Fable 5 · Geração anterior do Fable"
       }
     },
     "longContext": {
@@ -1737,6 +1737,10 @@
       "tooltipDisabled": "1M contexto não disponível para Haiku"
     },
     "codex": {
+      "gpt6astra": {
+        "label": "GPT-6 Astra",
+        "description": "Flagship de nova geração para uso autônomo do computador e tarefas agênticas longas."
+      },
       "gpt56sol": {
         "label": "GPT-5.6 Sol",
         "description": "Modelo de fronteira para trabalho profissional complexo."

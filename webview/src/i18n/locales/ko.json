@@ -1666,13 +1666,13 @@
         "label": "Haiku 4.5",
         "description": "Haiku 4.5 · 빠른 응답에 최적"
       },
-      "opus48": {
-        "label": "Opus 4.8",
-        "description": "Opus 4.8 · 이전 세대 Opus 모델"
+      "fable51": {
+        "label": "Fable 5.1",
+        "description": "Fable 5.1 · 가장 강력함 · Mythos급"
       },
       "fable5": {
         "label": "Fable 5",
-        "description": "Fable 5 · 가장 강력함 · Mythos급"
+        "description": "Fable 5 · 이전 세대 Fable 모델"
       }
     },
     "longContext": {
@@ -1682,6 +1682,10 @@
       "tooltipDisabled": "Haiku에서는 1M 컨텍스트를 사용할 수 없습니다"
     },
     "codex": {
+      "gpt6astra": {
+        "label": "GPT-6 Astra",
+        "description": "자율 컴퓨터 조작과 장기 에이전트 작업을 위한 차세대 플래그십 모델."
+      },
       "gpt56sol": {
         "label": "GPT-5.6 Sol",
         "description": "복잡한 전문 작업을 위한 프런티어 모델."

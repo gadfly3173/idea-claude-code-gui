@@ -1570,13 +1570,13 @@
         "label": "Haiku 4.5",
         "description": "Haiku 4.5 · सबसे तेज़, त्वरित उत्तरों के लिए उपयुक्त"
       },
-      "opus48": {
-        "label": "Opus 4.8",
-        "description": "Opus 4.8 · पिछली Opus पीढ़ी"
+      "fable51": {
+        "label": "Fable 5.1",
+        "description": "Fable 5.1 · सबसे शक्तिशाली · Mythos-श्रेणी"
       },
       "fable5": {
         "label": "Fable 5",
-        "description": "Fable 5 · सबसे शक्तिशाली · Mythos-श्रेणी"
+        "description": "Fable 5 · पिछली Fable पीढ़ी"
       }
     },
     "longContext": {
@@ -1586,6 +1586,10 @@
       "tooltipDisabled": "Haiku के लिए 1M संदर्भ उपलब्ध नहीं है"
     },
     "codex": {
+      "gpt6astra": {
+        "label": "GPT-6 Astra",
+        "description": "स्वायत्त कंप्यूटर उपयोग और लंबे एजेंटिक कार्यों के लिए नई पीढ़ी का फ्लैगशिप मॉडल।"
+      },
       "gpt56sol": {
         "label": "GPT-5.6 Sol",
         "description": "जटिल पेशेवर कार्यों के लिए फ्रंटियर मॉडल।"

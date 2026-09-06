@@ -1597,13 +1597,13 @@
         "label": "Haiku 4.5",
         "description": "Haiku 4.5 · Самая быстрая для быстрых ответов"
       },
-      "opus48": {
-        "label": "Opus 4.8",
-        "description": "Opus 4.8 · Предыдущее поколение Opus"
+      "fable51": {
+        "label": "Fable 5.1",
+        "description": "Fable 5.1 · Самая мощная · класс Mythos"
       },
       "fable5": {
         "label": "Fable 5",
-        "description": "Fable 5 · Самая мощная · класс Mythos"
+        "description": "Fable 5 · Предыдущее поколение Fable"
       }
     },
     "longContext": {
@@ -1613,6 +1613,10 @@
       "tooltipDisabled": "1M контекст недоступен для Haiku"
     },
     "codex": {
+      "gpt6astra": {
+        "label": "GPT-6 Astra",
+        "description": "Флагман нового поколения для автономной работы с компьютером и длительных агентных задач."
+      },
       "gpt56sol": {
         "label": "GPT-5.6 Sol",
         "description": "Передовая модель для сложной профессиональной работы."

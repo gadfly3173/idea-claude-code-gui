@@ -341,7 +341,8 @@ export const DEFAULT_CLAUDE_MODEL_ID = 'claude-sonnet-5';
 const LEGACY_CLAUDE_MODEL_ID_ALIASES: Record<string, string> = {
   'claude-sonnet-4-6': 'claude-sonnet-5',
   'claude-sonnet-4-7': 'claude-sonnet-5',
-  'claude-opus-4-6': 'claude-opus-4-8',
+  'claude-opus-4-6': 'claude-opus-5',
+  'claude-opus-4-8': 'claude-opus-5',
 };
 
 export function normalizeClaudeModelId(modelId: string | undefined | null): string {
@@ -359,19 +360,19 @@ export function normalizeClaudeModelId(modelId: string | undefined | null): stri
  */
 export const CLAUDE_MODELS: ModelInfo[] = [
   {
+    id: 'claude-fable-5-1',
+    label: 'Fable 5.1',
+    description: 'Fable 5.1 · Most powerful · Mythos-class',
+  },
+  {
     id: 'claude-fable-5',
     label: 'Fable 5',
-    description: 'Fable 5 · Most powerful · Mythos-class',
+    description: 'Fable 5 · Previous Fable generation',
   },
   {
     id: 'claude-opus-5',
     label: 'Opus 5',
     description: 'Opus 5 · Latest Opus upgrade',
-  },
-  {
-    id: 'claude-opus-4-8',
-    label: 'Opus 4.8',
-    description: 'Opus 4.8 · Previous Opus generation',
   },
   {
     id: 'claude-sonnet-5',
@@ -389,6 +390,11 @@ export const CLAUDE_MODELS: ModelInfo[] = [
  * Codex model list
  */
 export const CODEX_MODELS: ModelInfo[] = [
+  {
+    id: 'gpt-6-astra',
+    label: 'GPT-6 Astra',
+    description: 'New-generation flagship for autonomous computer use and long agentic tasks.',
+  },
   {
     id: 'gpt-5.6-sol',
     label: 'GPT-5.6 Sol',
@@ -619,6 +625,7 @@ export const AVAILABLE_PROVIDERS: ProviderInfo[] = [
  * Based on: https://code.claude.com/docs/en/model-config#adjust-effort-level
  */
 export const EFFORT_SUPPORTED_CLAUDE_MODELS = new Set([
+  'claude-fable-5-1',
   'claude-fable-5',
   'claude-opus-5',
   'claude-opus-4-8',
@@ -633,6 +640,7 @@ export const EFFORT_SUPPORTED_CLAUDE_MODELS = new Set([
  * Claude models that additionally support the 'xhigh' effort level.
  */
 export const XHIGH_EFFORT_CLAUDE_MODELS = new Set([
+  'claude-fable-5-1',
   'claude-fable-5',
   'claude-opus-5',
   'claude-opus-4-8',
@@ -642,6 +650,7 @@ export const XHIGH_EFFORT_CLAUDE_MODELS = new Set([
  * Claude models that support the 'max' effort level.
  */
 export const MAX_EFFORT_CLAUDE_MODELS = new Set([
+  'claude-fable-5-1',
   'claude-fable-5',
   'claude-opus-5',
   'claude-opus-4-8',
@@ -653,14 +662,14 @@ export const MAX_EFFORT_CLAUDE_MODELS = new Set([
 ]);
 
 export function codexModelSupportsMaxEffort(modelId: string): boolean {
-  return modelId.trim().toLowerCase().includes('gpt-5.6');
+  return modelId.trim().toLowerCase().includes('gpt-5.6') || modelId.trim().toLowerCase().includes('gpt-6');
 }
 
 /**
  * Reasoning Effort (thinking depth)
  * Controls the depth of reasoning for AI models
  * Claude API values: low, medium, high, xhigh, max
- * Codex API values: low, medium, high, xhigh; GPT-5.6 also supports max
+ * Codex API values: low, medium, high, xhigh; GPT-5.6 and GPT-6 support max
  */
 export type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 

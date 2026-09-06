@@ -306,7 +306,8 @@ public class SessionState {
                 base = "claude-sonnet-5";
                 break;
             case "claude-opus-4-6":
-                base = "claude-opus-4-8";
+            case "claude-opus-4-8":
+                base = "claude-opus-5";
                 break;
             default:
                 return trimmed;

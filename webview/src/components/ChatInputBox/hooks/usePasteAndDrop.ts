@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Attachment } from '../types.js';
 import { generateId } from '../utils/generateId.js';
-import { createImagePasteDedupe } from '../utils/imagePasteDedupe.js';
+import { createImagePasteDedupe, type ImagePasteSource } from '../utils/imagePasteDedupe.js';
 import { insertTextAtCursor } from '../utils/selectionUtils.js';
 import {
   parseExplicitFileReferences,
@@ -25,6 +25,8 @@ interface UsePasteAndDropOptions {
   renderFileTags: () => void;
   setHasContent: (hasContent: boolean) => void;
   setInternalAttachments: React.Dispatch<React.SetStateAction<Attachment[]>>;
+  /** Pending images belong to this session, not just to the mounted input box. */
+  currentSessionId?: string | null;
   onInput?: (content: string) => void;
   closeAllCompletions: () => void;
   handleInput: (inputType?: string) => void;
@@ -39,7 +41,21 @@ interface UsePasteAndDropReturn {
   handleDragOver: (e: React.DragEvent) => void;
   /** Handle drop event - detect images and file paths */
   handleDrop: (e: React.DragEvent) => void;
+  /** Keep submit controls closed until image reads and comparisons settle. */
+  isPreparingImages: boolean;
+  /** Synchronous guard also covers a submit before React publishes the pending state. */
+  hasPendingImagePastes: () => boolean;
+  /** A submitted or replaced draft must forget old work and clipboard replay history. */
+  invalidateImagePastes: () => void;
 }
+
+interface ImagePasteScope {
+  dedupe: ReturnType<typeof createImagePasteDedupe>;
+  pending: number;
+  processing: Promise<void>;
+}
+
+const NATIVE_IMAGE_TIMEOUT_MS = 30000;
 
 /**
  * usePasteAndDrop - Handle paste and drag-drop operations
@@ -58,6 +74,7 @@ export function usePasteAndDrop({
   renderFileTags,
   setHasContent,
   setInternalAttachments,
+  currentSessionId = null,
   onInput,
   closeAllCompletions,
   handleInput,
@@ -67,7 +84,87 @@ export function usePasteAndDrop({
    * One keystroke can deliver the same clipboard image twice (webview paste
    * event and a Java producer); only the first delivery becomes an attachment.
    */
-  const imagePasteDedupeRef = useRef(createImagePasteDedupe());
+  // Lazy per-draft state avoids rebuilding the dedupe cache on every input render.
+  const pasteScopeRef = useRef<ImagePasteScope | null>(null);
+  const nativeRequestsRef = useRef(new Map<string, (attachment: Attachment | null) => void>());
+  const mountedRef = useRef(false);
+  const [isPreparingImages, setIsPreparingImages] = useState(false);
+
+  const invalidateImagePastes = useCallback(() => {
+    pasteScopeRef.current = null;
+    for (const finish of nativeRequestsRef.current.values()) finish(null);
+    nativeRequestsRef.current.clear();
+    if (mountedRef.current) {
+      setIsPreparingImages(false);
+    }
+  }, []);
+
+  useLayoutEffect(() => {
+    mountedRef.current = true;
+    invalidateImagePastes();
+    return () => {
+      mountedRef.current = false;
+      invalidateImagePastes();
+    };
+  }, [currentSessionId, invalidateImagePastes]);
+
+  const hasPendingImagePastes = useCallback(() => (pasteScopeRef.current?.pending ?? 0) > 0, []);
+
+  const queuePastedImage = useCallback((prepare: () => Promise<Attachment | null>, source: ImagePasteSource | null) => {
+    if (!mountedRef.current) return;
+    const scope = pasteScopeRef.current ??= { dedupe: createImagePasteDedupe(), pending: 0, processing: Promise.resolve() };
+    const arrivedAt = Date.now();
+    // Capture ownership before FileReader starts, not after its callback or pixel decoding finishes.
+    scope.pending++;
+    setIsPreparingImages(true);
+    // Start independent reads immediately, but commit their decisions in gesture order.
+    // Attach the rejection handler now so a later read cannot reject unobserved while waiting its turn.
+    const prepared = (() => {
+      try {
+        return prepare().catch((error) => {
+          console.warn('Failed to prepare clipboard image', error);
+          return null;
+        });
+      } catch (error) {
+        console.warn('Failed to prepare clipboard image', error);
+        return Promise.resolve(null);
+      }
+    })();
+    scope.processing = scope.processing.then(async () => {
+      try {
+        const attachment = await prepared;
+        if (!attachment || !mountedRef.current || pasteScopeRef.current !== scope) return;
+        const accepted = source === null || await scope.dedupe.isNewPaste(attachment, source, arrivedAt);
+        if (accepted && mountedRef.current && pasteScopeRef.current === scope) {
+          setInternalAttachments((prev) => [...prev, attachment]);
+        }
+      } catch (error) {
+        console.warn('Failed to prepare clipboard image', error);
+      } finally {
+        scope.pending--;
+        if (mountedRef.current && pasteScopeRef.current === scope) {
+          setIsPreparingImages(scope.pending > 0);
+        }
+      }
+    });
+  }, [setInternalAttachments]);
+
+  const requestNativeImage = useCallback((snapshotId?: string) => {
+    queuePastedImage(() => new Promise<Attachment | null>((resolve) => {
+      const requestId = generateId();
+      const finish = (attachment: Attachment | null) => {
+        clearTimeout(timeout);
+        nativeRequestsRef.current.delete(requestId);
+        resolve(attachment);
+      };
+      // Lost bridge replies must release the draft without accepting a later, obsolete image.
+      const timeout = setTimeout(() => finish(null), NATIVE_IMAGE_TIMEOUT_MS);
+      nativeRequestsRef.current.set(requestId, finish);
+      // Native actions already captured the clipboard; claiming that snapshot must not reread newer contents.
+      const request = snapshotId ? JSON.stringify({ requestId, snapshotId }) : requestId;
+      if (!sendBridgeEvent('paste_image', request)) finish(null);
+    }), 'java-bridge');
+  }, [queuePastedImage]);
 
   /**
    * Handle paste event - detect images and plain text
@@ -79,7 +176,7 @@ export function usePasteAndDrop({
       if (!items || items.length === 0) {
         // JCEF may have intercepted the paste event; ask Java side to check clipboard for images
         e.preventDefault();
-        sendBridgeEvent('paste_image');
+        requestNativeImage();
         return;
       }
 
@@ -96,33 +193,30 @@ export function usePasteAndDrop({
           const blob = item.getAsFile();
 
           if (blob) {
-            // Read image as Base64
-            const reader = new FileReader();
-            reader.onload = () => {
-              const base64 = (reader.result as string).split(',')[1];
-              const mediaType = blob.type || item.type || 'image/png';
-              const ext = (() => {
-                if (mediaType && mediaType.includes('/')) {
-                  return mediaType.split('/')[1];
-                }
-                const name = blob.name || '';
-                const m = name.match(/\.([a-zA-Z0-9]+)$/);
-                return m ? m[1] : 'png';
-              })();
-              const attachment: Attachment = {
-                id: generateId(),
-                fileName: `pasted-image-${Date.now()}.${ext}`,
-                mediaType,
-                data: base64,
+            queuePastedImage(() => new Promise<Attachment>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onerror = () => reject(reader.error ?? new Error('Image read failed'));
+              reader.onabort = () => reject(new Error('Image read aborted'));
+              reader.onload = () => {
+                const base64 = (reader.result as string).split(',')[1];
+                const mediaType = blob.type || item.type || 'image/png';
+                const ext = (() => {
+                  if (mediaType && mediaType.includes('/')) {
+                    return mediaType.split('/')[1];
+                  }
+                  const name = blob.name || '';
+                  const m = name.match(/\.([a-zA-Z0-9]+)$/);
+                  return m ? m[1] : 'png';
+                })();
+                resolve({
+                  id: generateId(),
+                  fileName: `pasted-image-${Date.now()}.${ext}`,
+                  mediaType,
+                  data: base64,
+                });
               };
-
-              if (!imagePasteDedupeRef.current.isNewPaste(attachment, 'dom-paste')) {
-                return;
-              }
-
-              setInternalAttachments((prev) => [...prev, attachment]);
-            };
-            reader.readAsDataURL(blob);
+              reader.readAsDataURL(blob);
+            }), 'dom-paste');
           }
 
           return;
@@ -232,7 +326,7 @@ export function usePasteAndDrop({
           timer.end();
         } else {
           // No image, no text, no file — JCEF may have intercepted a clipboard image
-          sendBridgeEvent('paste_image');
+          requestNativeImage();
         }
       }
     },
@@ -240,7 +334,8 @@ export function usePasteAndDrop({
       editableRef,
       pathMappingRef,
       renderFileTags,
-      setInternalAttachments,
+      queuePastedImage,
+      requestNativeImage,
       handleInput,
       flushInput,
     ]
@@ -279,26 +374,29 @@ export function usePasteAndDrop({
           // Only process image files
           if (file.type.startsWith('image/')) {
             hasImageFile = true;
-            const reader = new FileReader();
-            reader.onload = () => {
-              const base64 = (reader.result as string).split(',')[1];
-              const ext = (() => {
-                if (file.type && file.type.includes('/')) {
-                  return file.type.split('/')[1];
-                }
-                const m = file.name.match(/\.([a-zA-Z0-9]+)$/);
-                return m ? m[1] : 'png';
-              })();
-              const attachment: Attachment = {
-                id: generateId(),
-                fileName: file.name || `dropped-image-${Date.now()}.${ext}`,
-                mediaType: file.type || 'image/png',
-                data: base64,
+            // Deliberate drops share lifecycle protection, but never clipboard replay suppression.
+            queuePastedImage(() => new Promise<Attachment>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onerror = () => reject(reader.error ?? new Error('Image read failed'));
+              reader.onabort = () => reject(new Error('Image read aborted'));
+              reader.onload = () => {
+                const base64 = (reader.result as string).split(',')[1];
+                const ext = (() => {
+                  if (file.type && file.type.includes('/')) {
+                    return file.type.split('/')[1];
+                  }
+                  const m = file.name.match(/\.([a-zA-Z0-9]+)$/);
+                  return m ? m[1] : 'png';
+                })();
+                resolve({
+                  id: generateId(),
+                  fileName: file.name || `dropped-image-${Date.now()}.${ext}`,
+                  mediaType: file.type || 'image/png',
+                  data: base64,
+                });
               };
-
-              setInternalAttachments((prev) => [...prev, attachment]);
-            };
-            reader.readAsDataURL(file);
+              reader.readAsDataURL(file);
+            }), null);
           }
         }
       }
@@ -376,7 +474,7 @@ export function usePasteAndDrop({
       adjustHeight,
       renderFileTags,
       setHasContent,
-      setInternalAttachments,
+      queuePastedImage,
       onInput,
       closeAllCompletions,
     ]
@@ -385,8 +483,14 @@ export function usePasteAndDrop({
   // Listen for image paste events dispatched from Java side (when clipboard has image but no text)
   useEffect(() => {
     const onJavaPasteImage = (e: Event) => {
-      const { base64, mediaType } = (e as CustomEvent).detail;
-      if (!base64) return;
+      const { base64, mediaType, requestId } = (e as CustomEvent).detail;
+      // A request can outlive its session or draft; only its original pending owner may consume it.
+      const finish = requestId ? nativeRequestsRef.current.get(requestId) : undefined;
+      if (requestId && !finish) return;
+      if (!base64) {
+        finish?.(null);
+        return;
+      }
       const ext = mediaType?.split('/')[1] || 'png';
       const attachment: Attachment = {
         id: generateId(),
@@ -395,19 +499,27 @@ export function usePasteAndDrop({
         data: base64,
       };
 
-      if (!imagePasteDedupeRef.current.isNewPaste(attachment, 'java-bridge')) {
-        return;
-      }
-
-      setInternalAttachments((prev) => [...prev, attachment]);
+      if (finish) finish(attachment);
+      else queuePastedImage(() => Promise.resolve(attachment), 'java-bridge');
     };
+    const onNativePasteRequest = (event: Event) => {
+      const snapshotId = (event as CustomEvent<{ snapshotId?: string }>).detail?.snapshotId;
+      requestNativeImage(snapshotId);
+    };
+    window.addEventListener('java-request-paste-image', onNativePasteRequest);
     window.addEventListener('java-paste-image', onJavaPasteImage);
-    return () => window.removeEventListener('java-paste-image', onJavaPasteImage);
-  }, [setInternalAttachments]);
+    return () => {
+      window.removeEventListener('java-paste-image', onJavaPasteImage);
+      window.removeEventListener('java-request-paste-image', onNativePasteRequest);
+    };
+  }, [queuePastedImage, requestNativeImage]);
 
   return {
     handlePaste,
     handleDragOver,
     handleDrop,
+    isPreparingImages,
+    hasPendingImagePastes,
+    invalidateImagePastes,
   };
 }

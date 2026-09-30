@@ -69,6 +69,7 @@ export function createImagePasteDedupe(
   interface RecentImage {
     image: PastedImage;
     source: ImagePasteSource;
+    sequence: number;
     encodings: Partial<Record<ImagePasteSource, PastedImage>>;
     lastSeenAt: number;
     fingerprint: Promise<string | null> | null;
@@ -90,8 +91,9 @@ export function createImagePasteDedupe(
       pending = pending.then(async () => {
         recentImages = recentImages.filter((entry) => now - entry.lastSeenAt < windowMs);
         // A different accepted gesture invalidates old replay claims across both producers.
-        // An unseen producer may still deliver a late echo; repeated echoes observe the same global sequence.
-        const canReplay = (entry: RecentImage) => !entry.encodings[source] ||
+        // A producer that already accepted a newer image must not mistake its return to A for A's first echo.
+        const canReplay = (entry: RecentImage) => (!entry.encodings[source] &&
+          (lastDeliveries[source]?.sequence ?? 0) <= entry.sequence) ||
           (entry === lastDeliveries[source] && observedGestures[source] === gestureSequence);
         const identical = recentImages.find((entry) => canReplay(entry) &&
           Object.values(entry.encodings).some((encoding) =>
@@ -128,9 +130,10 @@ export function createImagePasteDedupe(
           }
         }
 
-        const accepted = { image, source, encodings: { [source]: image }, lastSeenAt: now, fingerprint: currentFingerprint };
+        const accepted = { image, source, sequence: ++gestureSequence,
+          encodings: { [source]: image }, lastSeenAt: now, fingerprint: currentFingerprint };
         lastDeliveries[source] = accepted;
-        observedGestures[source] = ++gestureSequence;
+        observedGestures[source] = gestureSequence;
         recentImages.push(accepted);
         // Retain only a bounded replay history, even under a burst of bridge events.
         if (recentImages.length > MAX_RECENT_IMAGES) {

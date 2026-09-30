@@ -191,6 +191,19 @@ describe('createImagePasteDedupe', () => {
     expect(await dedupe.isNewPaste(reencodedImage, 'java-bridge')).toBe(false);
   });
 
+  it.each(['dom-paste', 'java-bridge'] as const)(
+    'keeps A/B/A after %s A without requiring an initial echo',
+    async (source) => {
+      for (const finalImage of [image, reencodedImage]) {
+        const { dedupe } = createDedupe();
+        const otherSource = source === 'dom-paste' ? 'java-bridge' : 'dom-paste';
+        expect(await dedupe.isNewPaste(image, source, 0)).toBe(true);
+        expect(await dedupe.isNewPaste(otherImage, otherSource, 400)).toBe(true);
+        expect(await dedupe.isNewPaste(finalImage, otherSource, 800)).toBe(true);
+      }
+    },
+  );
+
   it('does not extend unrelated images when one image keeps echoing', async () => {
     const { dedupe } = createDedupe();
 

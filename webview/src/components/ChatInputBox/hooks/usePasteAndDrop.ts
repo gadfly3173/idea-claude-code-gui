@@ -10,6 +10,7 @@ import {
 } from '../utils/fileReferences.js';
 import { perfTimer } from '../../../utils/debug.js';
 import { sendBridgeEvent } from '../../../utils/bridge.js';
+import { BRIDGE_READY_EVENT } from '../../../utils/bridgeStartup.js';
 
 declare global {
   interface Window {
@@ -52,6 +53,7 @@ interface UsePasteAndDropReturn {
 interface ImagePasteScope {
   dedupe: ReturnType<typeof createImagePasteDedupe>;
   pending: number;
+  publication: number;
   processing: Promise<void>;
 }
 
@@ -88,31 +90,55 @@ export function usePasteAndDrop({
   const pasteScopeRef = useRef<ImagePasteScope | null>(null);
   const nativeRequestsRef = useRef(new Map<string, (attachment: Attachment | null) => void>());
   const mountedRef = useRef(false);
+  const draftScopeIdRef = useRef<string | null>(null);
+  const publicationSequenceRef = useRef(0);
+  const committedPublicationRef = useRef(0);
+  const [publication, setPublication] = useState(0);
   const [isPreparingImages, setIsPreparingImages] = useState(false);
+
+  const publishImageScope = useCallback(() => {
+    sendBridgeEvent('paste_image_scope', draftScopeIdRef.current ?? '');
+  }, []);
 
   const invalidateImagePastes = useCallback(() => {
     pasteScopeRef.current = null;
     for (const finish of nativeRequestsRef.current.values()) finish(null);
     nativeRequestsRef.current.clear();
+    // Native gestures bind to this id before their queued offer can reach a replacement draft.
+    draftScopeIdRef.current = mountedRef.current ? generateId() : null;
+    publishImageScope();
     if (mountedRef.current) {
       setIsPreparingImages(false);
     }
-  }, []);
+  }, [publishImageScope]);
 
   useLayoutEffect(() => {
     mountedRef.current = true;
+    window.addEventListener(BRIDGE_READY_EVENT, publishImageScope);
     invalidateImagePastes();
     return () => {
       mountedRef.current = false;
+      window.removeEventListener(BRIDGE_READY_EVENT, publishImageScope);
       invalidateImagePastes();
     };
-  }, [currentSessionId, invalidateImagePastes]);
+  }, [currentSessionId, invalidateImagePastes, publishImageScope]);
 
-  const hasPendingImagePastes = useCallback(() => (pasteScopeRef.current?.pending ?? 0) > 0, []);
+  const hasPendingImagePastes = useCallback(() => {
+    const scope = pasteScopeRef.current;
+    return !!scope && (scope.pending > 0 || scope.publication > committedPublicationRef.current);
+  }, []);
+
+  useLayoutEffect(() => {
+    // This state update shares the attachment update's batch; a native submit cannot observe readiness first.
+    committedPublicationRef.current = publication;
+    if (mountedRef.current) setIsPreparingImages(hasPendingImagePastes());
+  }, [publication, hasPendingImagePastes]);
 
   const queuePastedImage = useCallback((prepare: () => Promise<Attachment | null>, source: ImagePasteSource | null) => {
     if (!mountedRef.current) return;
-    const scope = pasteScopeRef.current ??= { dedupe: createImagePasteDedupe(), pending: 0, processing: Promise.resolve() };
+    const scope = pasteScopeRef.current ??= {
+      dedupe: createImagePasteDedupe(), pending: 0, publication: 0, processing: Promise.resolve(),
+    };
     const arrivedAt = Date.now();
     // Capture ownership before FileReader starts, not after its callback or pixel decoding finishes.
     scope.pending++;
@@ -136,18 +162,20 @@ export function usePasteAndDrop({
         if (!attachment || !mountedRef.current || pasteScopeRef.current !== scope) return;
         const accepted = source === null || await scope.dedupe.isNewPaste(attachment, source, arrivedAt);
         if (accepted && mountedRef.current && pasteScopeRef.current === scope) {
-          setInternalAttachments((prev) => [...prev, attachment]);
+          scope.publication = ++publicationSequenceRef.current;
+          setInternalAttachments((prev) => pasteScopeRef.current === scope ? [...prev, attachment] : prev);
+          setPublication(scope.publication);
         }
       } catch (error) {
         console.warn('Failed to prepare clipboard image', error);
       } finally {
         scope.pending--;
         if (mountedRef.current && pasteScopeRef.current === scope) {
-          setIsPreparingImages(scope.pending > 0);
+          setIsPreparingImages(hasPendingImagePastes());
         }
       }
     });
-  }, [setInternalAttachments]);
+  }, [setInternalAttachments, hasPendingImagePastes]);
 
   const requestNativeImage = useCallback((snapshotId?: string) => {
     queuePastedImage(() => new Promise<Attachment | null>((resolve) => {
@@ -161,7 +189,7 @@ export function usePasteAndDrop({
       const timeout = setTimeout(() => finish(null), NATIVE_IMAGE_TIMEOUT_MS);
       nativeRequestsRef.current.set(requestId, finish);
       // Native actions already captured the clipboard; claiming that snapshot must not reread newer contents.
-      const request = snapshotId ? JSON.stringify({ requestId, snapshotId }) : requestId;
+      const request = snapshotId ? JSON.stringify({ requestId, snapshotId, scopeId: draftScopeIdRef.current }) : requestId;
       if (!sendBridgeEvent('paste_image', request)) finish(null);
     }), 'java-bridge');
   }, [queuePastedImage]);
@@ -503,7 +531,8 @@ export function usePasteAndDrop({
       else queuePastedImage(() => Promise.resolve(attachment), 'java-bridge');
     };
     const onNativePasteRequest = (event: Event) => {
-      const snapshotId = (event as CustomEvent<{ snapshotId?: string }>).detail?.snapshotId;
+      const { snapshotId, scopeId } = (event as CustomEvent<{ snapshotId?: string; scopeId?: string }>).detail ?? {};
+      if (snapshotId && (!scopeId || scopeId !== draftScopeIdRef.current)) return;
       requestNativeImage(snapshotId);
     };
     window.addEventListener('java-request-paste-image', onNativePasteRequest);

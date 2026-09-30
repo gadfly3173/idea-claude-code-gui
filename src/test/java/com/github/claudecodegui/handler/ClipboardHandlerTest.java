@@ -81,8 +81,8 @@ public class ClipboardHandlerTest {
         assertTrue(handler.offerImagePaste(second));
         String secondId = snapshotId(fixture.callback.scripts.get(1));
         fixture.callback.scripts.clear();
-        handler.handle("paste_image", "{\"requestId\":\"first\",\"snapshotId\":\"" + firstId + "\"}");
-        handler.handle("paste_image", "{\"requestId\":\"second\",\"snapshotId\":\"" + secondId + "\"}");
+        handler.handle("paste_image", "{\"requestId\":\"first\",\"snapshotId\":\"" + firstId + "\",\"scopeId\":\"draft-a\"}");
+        handler.handle("paste_image", "{\"requestId\":\"second\",\"snapshotId\":\"" + secondId + "\",\"scopeId\":\"draft-a\"}");
         assertTrue(fixture.edtTasks.isEmpty());
         assertTrue(fixture.expirationTasks.isEmpty());
         fixture.backgroundTasks.remove().run();
@@ -106,7 +106,7 @@ public class ClipboardHandlerTest {
         fixture.expirationTasks.remove().run();
         fixture.expirationTasks.remove().run();
         fixture.callback.scripts.clear();
-        handler.handle("paste_image", "{\"requestId\":\"expired\",\"snapshotId\":\"" + expired + "\"}");
+        handler.handle("paste_image", "{\"requestId\":\"expired\",\"snapshotId\":\"" + expired + "\",\"scopeId\":\"draft-a\"}");
         assertTrue(fixture.callback.scripts.get(0).contains("base64: null"));
         assertTrue(fixture.edtTasks.isEmpty());
         assertTrue(handler.offerImagePaste(image()));
@@ -126,6 +126,95 @@ public class ClipboardHandlerTest {
         assertTrue(fixture.callback.scripts.get(0).contains("java-request-paste-image"));
         assertTrue(fixture.backgroundTasks.isEmpty());
         handler.dispose();
+    }
+
+    /** A retained native image must identify the draft that was active at its gesture. */
+    @Test
+    public void offersCarryThePublishedDraftScope() {
+        Fixture fixture = new Fixture();
+        ClipboardHandler handler = fixture.handler(ClipboardHandlerTest::image);
+        handler.handle("paste_image_scope", "draft-a");
+        assertTrue(handler.offerImagePaste(image()));
+        assertTrue(fixture.callback.scripts.get(0).contains("scopeId: \"draft-a\""));
+    }
+
+    /** Retiring a draft must release unclaimed snapshots immediately, before their offer events arrive. */
+    @Test
+    public void retiringDraftReleasesSnapshotsAndRejectsTheirClaims() {
+        Fixture fixture = new Fixture();
+        ClipboardHandler handler = fixture.handler(ClipboardHandlerTest::image);
+        handler.handle("paste_image_scope", "draft-a");
+        assertTrue(handler.offerImagePaste(image()));
+        String first = snapshotId(fixture.callback.scripts.get(0));
+        assertTrue(handler.offerImagePaste(image()));
+        fixture.callback.scripts.clear();
+        handler.handle("paste_image_scope", "draft-b");
+        assertTrue(fixture.expirationTasks.isEmpty());
+        handler.handle("paste_image", "{\"requestId\":\"late\",\"snapshotId\":\"" + first + "\",\"scopeId\":\"draft-a\"}");
+        assertTrue(fixture.backgroundTasks.isEmpty());
+        assertTrue(fixture.callback.scripts.get(0).contains("base64: null"));
+        assertTrue(handler.offerImagePaste(image()));
+    }
+
+    /** A scheduled hook read belongs to the draft at keyup, not whichever draft is current on the EDT. */
+    @Test
+    public void retiredHookReadDoesNotCaptureTheNextDraft() {
+        Fixture fixture = new Fixture();
+        AtomicInteger reads = new AtomicInteger();
+        ClipboardHandler handler = fixture.handler(() -> {
+            reads.incrementAndGet();
+            return image();
+        });
+        handler.handle("paste_image_scope", "draft-a");
+        handler.captureClipboardPaste();
+        handler.handle("paste_image_scope", "draft-b");
+        fixture.edtTasks.remove().run();
+        assertEquals(0, reads.get());
+        assertTrue(fixture.callback.scripts.isEmpty());
+        assertTrue(handler.offerImagePaste(image()));
+    }
+
+    /** A window with no active input must not retain native images awaiting a nonexistent owner. */
+    @Test
+    public void noPublishedDraftRejectsNativeOffers() {
+        Fixture fixture = new Fixture();
+        ClipboardHandler handler = new ClipboardHandler(fixture.context, fixture.edtTasks::add,
+                fixture.backgroundTasks::add, ClipboardHandlerTest::image, fixture::expireLater);
+        assertTrue(!handler.offerImagePaste(image()));
+        handler.captureClipboardPaste();
+        assertTrue(fixture.edtTasks.isEmpty());
+        assertTrue(fixture.expirationTasks.isEmpty());
+    }
+
+    /** A claim cannot attach a snapshot to a different draft even if its opaque snapshot id is known. */
+    @Test
+    public void mismatchedClaimScopeSettlesWithoutEncoding() {
+        Fixture fixture = new Fixture();
+        ClipboardHandler handler = fixture.handler(ClipboardHandlerTest::image);
+        assertTrue(handler.offerImagePaste(image()));
+        String snapshotId = snapshotId(fixture.callback.scripts.get(0));
+        fixture.callback.scripts.clear();
+        handler.handle("paste_image", "{\"requestId\":\"wrong-draft\",\"snapshotId\":\"" + snapshotId + "\",\"scopeId\":\"draft-b\"}");
+        assertTrue(fixture.backgroundTasks.isEmpty());
+        assertTrue(fixture.expirationTasks.isEmpty());
+        assertTrue(fixture.callback.scripts.get(0).contains("base64: null"));
+        assertTrue(handler.offerImagePaste(image()));
+    }
+
+    /** Unmounting an input must clear retained snapshots without waiting for their timeout. */
+    @Test
+    public void emptyScopeRetiresTheInputAndRejectsOversizedUpdates() {
+        Fixture fixture = new Fixture();
+        ClipboardHandler handler = fixture.handler(ClipboardHandlerTest::image);
+        handler.handle("paste_image_scope", "x".repeat(129));
+        assertTrue(handler.offerImagePaste(image()));
+        assertTrue(fixture.callback.scripts.get(0).contains("scopeId: \"draft-a\""));
+        handler.handle("paste_image_scope", "");
+        assertTrue(fixture.expirationTasks.isEmpty());
+        assertTrue(!handler.offerImagePaste(image()));
+        handler.dispose();
+        handler.handle("paste_image_scope", "draft-c");
+        assertTrue(!handler.offerImagePaste(image()));
     }
 
     /** Failed scheduling must not permanently consume the bounded admission slots. */
@@ -176,7 +265,7 @@ public class ClipboardHandlerTest {
         String snapshotId = snapshotId(fixture.callback.scripts.get(0));
         fixture.callback.scripts.clear();
         fixture.callback.page++;
-        handler.handle("paste_image", "{\"requestId\":\"new-page\",\"snapshotId\":\"" + snapshotId + "\"}");
+        handler.handle("paste_image", "{\"requestId\":\"new-page\",\"snapshotId\":\"" + snapshotId + "\",\"scopeId\":\"draft-a\"}");
         fixture.backgroundTasks.remove().run();
         assertTrue(fixture.callback.scripts.isEmpty());
     }
@@ -476,7 +565,10 @@ public class ClipboardHandlerTest {
         }
 
         private ClipboardHandler handler(java.util.function.Supplier<Image> reader) {
-            return new ClipboardHandler(context, edtTasks::add, backgroundTasks::add, reader, this::expireLater);
+            ClipboardHandler handler = new ClipboardHandler(this.context, this.edtTasks::add,
+                    this.backgroundTasks::add, reader, this::expireLater);
+            handler.handle("paste_image_scope", "draft-a");
+            return handler;
         }
     }
 

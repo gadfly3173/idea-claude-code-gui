@@ -39,7 +39,7 @@ public class ClipboardHandler extends BaseMessageHandler {
 
     private static final Logger LOG = Logger.getInstance(ClipboardHandler.class);
     private static final Gson GSON = new Gson();
-    private static final String[] SUPPORTED_TYPES = {"read_clipboard", "write_clipboard", "paste_image"};
+    private static final String[] SUPPORTED_TYPES = {"read_clipboard", "write_clipboard", "paste_image", "paste_image_scope"};
 
     private static final long MIN_READ_INTERVAL_MS = 200;
     private static final int MAX_CLIPBOARD_WRITE_SIZE = 10 * 1024 * 1024; // 10 MB
@@ -56,6 +56,7 @@ public class ClipboardHandler extends BaseMessageHandler {
     private final Semaphore imageSlots = new Semaphore(MAX_PENDING_IMAGES);
     private final Map<String, ImageOffer> imageOffers = new ConcurrentHashMap<>();
     private volatile boolean disposed;
+    private volatile String imageScopeId;
     private volatile long lastReadTime = 0;
 
     /**
@@ -109,6 +110,10 @@ public class ClipboardHandler extends BaseMessageHandler {
                 this.handlePasteImage(content);
                 yield true;
             }
+            case "paste_image_scope" -> {
+                this.publishImageScope(content);
+                yield true;
+            }
             default -> false;
         };
     }
@@ -158,6 +163,22 @@ public class ClipboardHandler extends BaseMessageHandler {
         }, ModalityState.any());
     }
 
+    private void publishImageScope(String scopeId) {
+        if (this.disposed || (scopeId != null && scopeId.length() > 128)) {
+            return;
+        }
+        this.imageScopeId = scopeId == null || scopeId.isEmpty() ? null : scopeId;
+        for (Map.Entry<String, ImageOffer> entry : this.imageOffers.entrySet()) {
+            if (!entry.getValue().scopeId.equals(this.imageScopeId)) {
+                this.discardOffer(entry.getKey());
+            }
+        }
+    }
+
+    private boolean recognizesImageScope(String scopeId) {
+        return scopeId != null && scopeId.equals(this.imageScopeId) && !this.disposed && !this.context.isDisposed();
+    }
+
     private void handlePasteImage(String requestId) {
         // Claims contain only opaque ids; oversized metadata must not allocate a JSON tree or a large JS reply.
         if (requestId != null && requestId.length() > MAX_IMAGE_REQUEST_LENGTH) {
@@ -173,12 +194,18 @@ public class ClipboardHandler extends BaseMessageHandler {
                 JsonObject request = JsonParser.parseString(requestId).getAsJsonObject();
                 ownedId = request.get("requestId").getAsString();
                 String snapshotId = request.get("snapshotId").getAsString();
+                String scopeId = request.get("scopeId").getAsString();
                 claimed = this.imageOffers.remove(snapshotId);
                 if (claimed == null) {
                     this.dispatchImageReply(reply, ownedId, null);
                 } else {
                     claimed.cancelExpiry.run();
-                    this.encodeAndReply(claimed.reply, ownedId, claimed.image, claimed.release);
+                    if (!claimed.scopeId.equals(scopeId) || !this.recognizesImageScope(scopeId)) {
+                        claimed.release.run();
+                        this.dispatchImageReply(reply, ownedId, null);
+                    } else {
+                        this.encodeAndReply(claimed.reply, ownedId, claimed.image, claimed.release);
+                    }
                 }
             } catch (RuntimeException e) {
                 if (claimed != null) {
@@ -223,19 +250,20 @@ public class ClipboardHandler extends BaseMessageHandler {
 
     /** Capture the macOS hook's clipboard on its first EDT handoff, before requesting draft ownership. */
     public void captureClipboardPaste() {
+        String scopeId = this.imageScopeId;
         Consumer<String> reply = this.context.captureJavaScriptExecutor();
-        if (this.disposed || this.context.isDisposed() || !this.imageSlots.tryAcquire()) {
+        if (!this.recognizesImageScope(scopeId) || !this.imageSlots.tryAcquire()) {
             return;
         }
         Runnable release = this.releaseOnce();
         try {
             this.clipboardScheduler.accept(() -> {
                 try {
-                    if (this.disposed || this.context.isDisposed()) {
+                    if (!this.recognizesImageScope(scopeId)) {
                         release.run();
                         return;
                     }
-                    this.offerImage(this.clipboardImageReader.get(), reply, release);
+                    this.offerImage(this.clipboardImageReader.get(), reply, release, scopeId);
                 } catch (RuntimeException e) {
                     release.run();
                     LOG.warn("Failed to capture clipboard paste", e);
@@ -249,12 +277,13 @@ public class ClipboardHandler extends BaseMessageHandler {
 
     /** Preserve an image already read by an IDE action while the frontend claims its draft. */
     public boolean offerImagePaste(Image image) {
-        if (this.disposed || this.context.isDisposed() || !this.imageSlots.tryAcquire()) {
+        String scopeId = this.imageScopeId;
+        if (!this.recognizesImageScope(scopeId) || !this.imageSlots.tryAcquire()) {
             return false;
         }
         Runnable release = this.releaseOnce();
         try {
-            return this.offerImage(image, this.context.captureJavaScriptExecutor(), release);
+            return this.offerImage(image, this.context.captureJavaScriptExecutor(), release, scopeId);
         } catch (RuntimeException e) {
             release.run();
             LOG.warn("Failed to capture clipboard reply ownership", e);
@@ -262,22 +291,23 @@ public class ClipboardHandler extends BaseMessageHandler {
         }
     }
 
-    private boolean offerImage(Image image, Consumer<String> reply, Runnable release) {
-        if (image == null || this.disposed || this.context.isDisposed()) {
+    private boolean offerImage(Image image, Consumer<String> reply, Runnable release, String scopeId) {
+        if (image == null || !this.recognizesImageScope(scopeId)) {
             release.run();
             return false;
         }
         String snapshotId = UUID.randomUUID().toString();
-        ImageOffer offer = new ImageOffer(image, reply, release);
+        ImageOffer offer = new ImageOffer(image, reply, release, scopeId);
         this.imageOffers.put(snapshotId, offer);
         try {
             offer.cancelExpiry = this.expirationScheduler.apply(() -> this.discardOffer(snapshotId));
-            if (this.disposed) {
+            if (!this.recognizesImageScope(scopeId)) {
                 this.discardOffer(snapshotId);
                 return false;
             }
             reply.accept("window.dispatchEvent(new CustomEvent('java-request-paste-image', "
-                    + "{ detail: { snapshotId: " + GSON.toJson(snapshotId) + " } }));");
+                    + "{ detail: { snapshotId: " + GSON.toJson(snapshotId)
+                    + ", scopeId: " + GSON.toJson(scopeId) + " } }));");
             return true;
         } catch (RuntimeException e) {
             this.discardOffer(snapshotId);
@@ -322,6 +352,7 @@ public class ClipboardHandler extends BaseMessageHandler {
     /** Release unclaimed native images when their chat window closes. */
     public void dispose() {
         this.disposed = true;
+        this.imageScopeId = null;
         for (String snapshotId : this.imageOffers.keySet()) {
             this.discardOffer(snapshotId);
         }
@@ -331,12 +362,14 @@ public class ClipboardHandler extends BaseMessageHandler {
         private final Image image;
         private final Consumer<String> reply;
         private final Runnable release;
+        private final String scopeId;
         private volatile Runnable cancelExpiry = () -> { };
 
-        private ImageOffer(Image image, Consumer<String> reply, Runnable release) {
+        private ImageOffer(Image image, Consumer<String> reply, Runnable release, String scopeId) {
             this.image = image;
             this.reply = reply;
             this.release = release;
+            this.scopeId = scopeId;
         }
     }
 

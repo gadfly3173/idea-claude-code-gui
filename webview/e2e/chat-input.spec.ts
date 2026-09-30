@@ -6,6 +6,8 @@ import { projectCodexItemMessages } from '../../ai-bridge/services/codex/codex-i
 type InputTestWindow = Window & typeof globalThis & {
   __sentMessages: string[];
   __bridgeMessages: string[];
+  __nativePasteRequests: string[];
+  __sentAttachments: Array<Array<{ data: string }>>;
   sendToJava?: (message: string) => void;
   onCodexNativeData?: (json: string) => void;
   onCodexRuntimeEvent?: (eventJson: string) => void;
@@ -28,11 +30,23 @@ test.beforeEach(async ({ page }) => {
     const bridge = window as InputTestWindow;
     bridge.__sentMessages = [];
     bridge.__bridgeMessages = [];
+    bridge.__nativePasteRequests = [];
+    bridge.__sentAttachments = [];
     bridge.sendToJava = (message) => {
       bridge.__bridgeMessages.push(message);
       if (message.startsWith('send_message:')) {
         const payload = JSON.parse(message.slice('send_message:'.length)) as { text: string };
         bridge.__sentMessages.push(payload.text);
+      }
+      if (message.startsWith('paste_image:')) {
+        bridge.__nativePasteRequests.push(message.slice('paste_image:'.length));
+      }
+      if (message.startsWith('send_message_with_attachments:')) {
+        const payload = JSON.parse(message.slice('send_message_with_attachments:'.length)) as {
+          text: string; attachments: Array<{ data: string }>;
+        };
+        bridge.__sentMessages.push(payload.text);
+        bridge.__sentAttachments.push(payload.attachments);
       }
       if (message.startsWith('get_dependency_status:')) {
         setTimeout(() => {
@@ -1750,4 +1764,84 @@ test('Codex history renders file edits, command reasons, image attachments and c
   expect(refreshedPaths).toEqual(expect.arrayContaining(['src/added.ts', 'src/moved.ts', 'src/gone.ts']));
   expect(refreshedPaths).not.toContain('src/failed.ts');
   expect(refreshedPaths).not.toContain('src/mixed.ts');
+});
+
+test('native image preparation preserves the draft until the owned reply arrives', async ({ page }) => {
+  const editable = page.locator('.input-editable');
+  await editable.fill('prompt with screenshot');
+  const requestId = await page.evaluate(() => {
+    window.dispatchEvent(new CustomEvent('java-request-paste-image'));
+    return (window as InputTestWindow).__nativePasteRequests[0];
+  });
+  expect(requestId).toBeTruthy();
+  await editable.press('Enter');
+  await expect(editable).toHaveText('prompt with screenshot');
+  expect(await sentMessages(page)).toEqual([]);
+
+  await page.evaluate((requestId) => window.dispatchEvent(new CustomEvent('java-paste-image', {
+    detail: { requestId, mediaType: 'image/png', base64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==' },
+  })), requestId);
+  await expect(page.locator('.attachment-item')).toHaveCount(1);
+  await editable.press('Enter');
+  await expect.poll(() => sentMessages(page)).toEqual(['prompt with screenshot']);
+  expect(await page.evaluate(() => (window as InputTestWindow).__sentAttachments[0])).toHaveLength(1);
+  await expect(editable).toBeEmpty();
+  await expect(page.locator('.chat-input-box .attachment-item')).toHaveCount(0);
+});
+
+test('leaving and returning to chat discards the previous native image request', async ({ page }) => {
+  const requestId = await page.evaluate(() => {
+    window.dispatchEvent(new CustomEvent('java-request-paste-image'));
+    return (window as InputTestWindow).__nativePasteRequests[0];
+  });
+  await page.locator('.header .codicon-settings-gear').locator('..').click();
+  await expect(page.locator('.input-editable')).toHaveCount(0);
+  await page.locator('button:has(.codicon-arrow-left)').click();
+  await expect(page.locator('.input-editable')).toBeVisible();
+  await page.evaluate((requestId) => window.dispatchEvent(new CustomEvent('java-paste-image', {
+    detail: { requestId, mediaType: 'image/png', base64: 'STALE' },
+  })), requestId);
+  await expect(page.locator('.attachment-item')).toHaveCount(0);
+  await page.locator('.input-editable').fill('fresh draft');
+  await page.locator('.input-editable').press('Enter');
+  await expect.poll(() => sentMessages(page)).toEqual(['fresh draft']);
+});
+
+test('alternating DOM and native pastes preserves the final deliberate A/B/A image', async ({ page }) => {
+  await page.clock.setFixedTime(new Date('2026-10-01T00:00:00Z'));
+  const imageA = await page.evaluate(() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 1;
+    canvas.getContext('2d')!.fillStyle = '#ff0000';
+    canvas.getContext('2d')!.fillRect(0, 0, 1, 1);
+    return canvas.toDataURL('image/png').split(',')[1];
+  });
+  const pasteDom = () => page.locator('.input-editable').evaluate((editable, base64) => {
+    const data = new DataTransfer();
+    data.items.add(new File([Uint8Array.from(atob(base64), byte => byte.charCodeAt(0))], 'a.png', { type: 'image/png' }));
+    editable.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+  }, imageA);
+  await pasteDom();
+  await expect(page.locator('.attachment-item')).toHaveCount(1);
+  await page.evaluate((base64) => window.dispatchEvent(new CustomEvent('java-paste-image', {
+    detail: { base64, mediaType: 'image/png' },
+  })), imageA);
+  await page.evaluate(() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 1;
+    canvas.getContext('2d')!.fillStyle = '#0000ff';
+    canvas.getContext('2d')!.fillRect(0, 0, 1, 1);
+    window.dispatchEvent(new CustomEvent('java-paste-image', {
+      detail: { base64: canvas.toDataURL('image/png').split(',')[1], mediaType: 'image/png' },
+    }));
+  });
+  await expect(page.locator('.attachment-item')).toHaveCount(2);
+  await pasteDom();
+  await expect(page.locator('.attachment-item')).toHaveCount(3);
+  await page.locator('.input-editable').fill('three images');
+  await page.locator('.input-editable').press('Enter');
+  await expect.poll(() => sentMessages(page)).toEqual(['three images']);
+  const attachments = await page.evaluate(() => (window as InputTestWindow).__sentAttachments[0]);
+  expect(attachments.map(({ data }) => data)).toEqual([imageA, attachments[1].data, imageA]);
+  expect(attachments[1].data).not.toBe(imageA);
 });

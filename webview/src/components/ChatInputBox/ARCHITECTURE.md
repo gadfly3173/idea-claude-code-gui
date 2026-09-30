@@ -220,17 +220,34 @@ const {
 
 **Supported Operations:**
 - **Image paste/drop** - Converts to Base64 attachments
+- **Clipboard echoes** - Compares bytes or rendered pixels without merging deliberate A/B/A pastes; caches each producer's encoding separately
+- **Draft ownership** - Captures ownership before FileReader or native encoding starts. IDE actions retain the image at the gesture; the macOS hook captures it on its first EDT handoff. Native offers carry a snapshot id, which the draft claims with an opaque request id, without rereading the clipboard. Both unclaimed snapshots and frontend requests expire after 30 seconds; session change, draft invalidation, and unmount forget old requests so their late replies are discarded
+- **Submission readiness** - Disables send while native requests, reads, or comparisons are pending; keyboard/IDE submit also preserves the draft and reports loading. Empty/error native replies settle the request; a lost reply expires after 30 seconds. Retry after processing finishes
+- **Paste ordering** - Starts reads concurrently but commits attachments in gesture order using the original arrival times. Tracks the global accepted gesture sequence and each producer's last observed sequence, so B invalidates an older replay claim even if only the other producer delivered B. First-time delayed echoes can still collapse, including repeated deliveries of that echo
+- **Native resource bounds** - Each handler admits at most two pending reads, unclaimed snapshots, or encodes combined. Excess owned requests receive an empty reply; expired snapshots never fall back to reading a newer clipboard image. Request metadata is capped at 1 KiB. Encoding rejects images above 16 × 1024 × 1024 pixels before allocating a converted raster and limits Base64 output to 20 MiB. Window teardown releases all unclaimed snapshots
 - **Text paste** - Inserts at cursor position
 - **File path drop** - Auto-creates file references
 
 ```typescript
-const { handlePaste, handleDragOver, handleDrop } = usePasteAndDrop({
+const {
+  handlePaste,
+  handleDragOver,
+  handleDrop,
+  isPreparingImages,
+  hasPendingImagePastes,
+  invalidateImagePastes,
+} = usePasteAndDrop({
+  currentSessionId,
   editableRef,
   pathMappingRef,
   getTextContent,
   // ... more options
 });
 ```
+
+`useSubmitHandler` checks `hasPendingImagePastes` before clearing the draft and calls
+`invalidateImagePastes` only on successful submission. Drops share draft ownership
+and readiness protection but bypass clipboard replay suppression.
 
 ### usePromptEnhancer
 

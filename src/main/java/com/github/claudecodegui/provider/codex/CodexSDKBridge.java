@@ -984,7 +984,9 @@ public class CodexSDKBridge extends BaseSDKBridge {
         if (requestParams != null) {
             params.add("params", requestParams.deepCopy());
         }
-        long timeoutMs = "codex.readHistoryPage".equals(method) || "codex.readSubagent".equals(method) ? 120_000L : 30_000L;
+        boolean transcriptRead = "codex.readHistoryPage".equals(method) || "codex.readSubagent".equals(method)
+                || "codex.countThreadMessages".equals(method);
+        long timeoutMs = transcriptRead ? 120_000L : 30_000L;
         return CompletableFuture.supplyAsync(() -> this.appServerRequestExecutor
                 .sendReadOnlyCommand(daemon, method, params, timeoutMs),
                 CodexAppServerRequestExecutor.turnWaitExecutor());

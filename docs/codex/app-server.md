@@ -24,7 +24,7 @@
 | `codex.respondInteraction` / `codex.respondInteractionError` | 控制（绕过队列） | 对指定 rpcId 回 typed result/error |
 | `codex.abortTurn` | 控制（绕过队列） | 停止活动 operation（派发阶段语义见下文） |
 | `codex.releaseThread` / `codex.resetRuntime` | 生命周期 | 排空 relation set / 关闭 child 并确认退出 |
-| `codex.listThreads` / `codex.readThread` / `codex.readHistoryPage` / `codex.readSubagent` | 独立只读通道 | 通过 app-server history projection 查询；child 先验证 parentThreadId 关系，不占发送 FIFO、不 resume writer |
+| `codex.listThreads` / `codex.countThreadMessages` / `codex.readThread` / `codex.readHistoryPage` / `codex.readSubagent` | 独立只读通道 | 通过 app-server history projection 查询；child 先验证 parentThreadId 关系，不占发送 FIFO、不 resume writer |
 | `codex.listModels` / `codex.listSkills` / `codex.getMcpStatus` / `codex.reloadMcp` | 独立只读通道 | 目录与 MCP 状态查询；reload 仍受 native runtime access 门控 |
 
 事件（进程级 NDJSON，经 `_originalStdoutWrite` 直写，**不带** activeRequestId 包装）：
@@ -172,6 +172,10 @@ MCP form elicitation 会把 `requestedSchema.properties` 映射成带稳定字�
 模型目录、技能和 MCP 状态使用独立的只读 native data 事件。Codex 选择器发送 `codex_native_list_models`，返回的 `data` 只描述当前有效运行时可见的模型，不代表账户 entitlement；技能和 MCP 设置分别使用 `codex_native_list_skills`、`codex_native_mcp_status` 与显式 `codex_native_mcp_reload`。inactive 或鉴权错误不会静默启动 legacy exec。
 
 历史列表优先走 `thread/list`，页面保留 `source=native`、`nextCursor` 和 `partial`。cursor 原样传回，重叠 turn/item 页按 native id upsert；metadata-only 空页不会清除现有记录。只有 runtime access inactive 时才请求已有只读 legacy 列表，鉴权/writer 错误保持可见。
+
+`thread/list` 不提供 `messageCount`，返回的空 `turns` 也不代表会话为空。列表先显示元信息，再通过独立只读 `codex.countThreadMessages` 请求后台统计，前端最多同时派发 4 个计数请求，相同元信息的重叠页复用待完成的请求。计数遍历原生历史页，沿用显示消息的 item 投影（含思考、工具调用及结果），按消息身份消除重叠页，不 resume 线程或启动模型回合。不完整的 turn/item 页缺少续页游标时保留未知计数。每次计数总时限为 110 秒，超时后停止请求后续页并允许重试。仅保存计数的宿主级缓存最多 128 条，有效期 60 秒；前端同样限制已知计数的复用时间，元信息变更及活跃线程重新读取。旧 CLI 不支持原生分页时采用完整原生读取，失败不记作 0，也不切换 JSONL 来源。
+
+未知计数显示“消息数未统计”，已确认空会话才显示 0。顶部只在当前已加载列表的计数全部已知时显示消息总和，会话数量单独计算；增量页和异步计数回执不会重复累加。回执按列表请求及元信息版本校验，页面切换、行更新或删除之后的旧计数不能覆盖当前记录。分页及改名、收藏都合并到最新状态，保留本地删除和编辑；进入 legacy 回退后忽略尚未返回的 native 页。较新 native 记录的未知或归零计数不会从较旧记录补齐。
 
 设置页的 Codex 访问范围统一为 `read-only`、`workspace-write`、`danger-full-access`，旧 `set_codex_sandbox_mode` 仍兼容但同时发出带 `source=user` 的 `set_codex_sandbox_selection`。计划/批准选择不会改写 sandbox，页面显示迁移来源。
 

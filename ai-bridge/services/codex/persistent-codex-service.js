@@ -32,6 +32,7 @@ import { getCodemossDir } from '../../utils/path-utils.js';
 import { join } from 'node:path';
 import { CodexPrivacyIndex } from './codex-privacy-index.js';
 import { readNativeHistoryPage } from './codex-native-history.js';
+import { createNativeHistoryCounter } from './codex-history-message-count.js';
 import { readNativeSubagent } from './codex-native-subagents.js';
 import { projectCodexItemMessages } from './codex-item-projection.js';
 import { isGuardianReviewThread } from './codex-thread-visibility.js';
@@ -45,6 +46,7 @@ import { prepareCodexRuntimeEnvironment } from './codex-native-runtime-env.js';
 
 /** sessionKey → {service, launchOptions, fingerprint, createdAt} */
 const sessionServices = new Map();
+const nativeHistoryCounters = new WeakMap();
 
 /**
  * Pristine base environment for codex runtime construction, captured once
@@ -627,6 +629,18 @@ export async function codexListThreadsPersistent(stdinData) {
   delete params.projectPath;
   const result = await codexReadOnlyPersistent('thread/list', { ...stdinData, params });
   return { ...result, data: filterCodexProjectThreads(result.data, projectPath) };
+}
+
+/** Counts history independently so listing metadata never waits for full transcripts. */
+export async function codexCountThreadMessagesPersistent(stdinData) {
+  const { service } = ensureSessionService(stdinData);
+  let count = nativeHistoryCounters.get(service);
+  if (!count) {
+    count = createNativeHistoryCounter((method, params) => service.readOnly(method, params));
+    nativeHistoryCounters.set(service, count);
+  }
+  const threadId = stdinData.threadId;
+  return { threadId, messageCount: await count({ ...stdinData.params, id: threadId }) };
 }
 
 /** Keeps descendant directories while honoring Windows case and project boundaries. */

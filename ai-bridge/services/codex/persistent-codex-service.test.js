@@ -33,6 +33,7 @@ const {
   filterCodexProjectThreads,
   projectThreadFileChanges,
   codexReadThreadPersistent,
+  codexCountThreadMessagesPersistent,
   setCodexPristineBaseEnv,
 } = await import('./persistent-codex-service.js');
 
@@ -256,6 +257,16 @@ test('project history hides guardian review sources without hiding user reviews 
   ];
   assert.deepEqual(filterCodexProjectThreads(threads, testCwd).map(thread => thread.id), ['user', 'review']);
   assert.deepEqual(filterCodexProjectThreads(threads, null).map(thread => thread.id), ['user', 'review']);
+});
+
+test('native message counts use the read-only host without claiming a thread writer', async () => {
+  const data = { channelId: 'history-count', cwd: testCwd, threadId: 'th-test-root-0001',
+    codexCommandPrefix: peerCommandPrefix('early-notification'), params: { updatedAt: 1 } };
+  assert.deepEqual(await codexCountThreadMessagesPersistent(data), { threadId: data.threadId, messageCount: 5 });
+  assert.deepEqual(await codexCountThreadMessagesPersistent(data), { threadId: data.threadId, messageCount: 5 });
+  assert.equal(getCodexRuntimeSnapshot().sessions[0].rootThreadId, null);
+  assert.equal(getCodexRuntimeSnapshot().sessions[0].busy, false);
+  assert.equal(codexEvents().some(event => event.kind === 'turnStarted'), false);
 });
 
 function peerCommandPrefix(scenario) {

@@ -1612,6 +1612,21 @@ public class CodexSDKBridge extends BaseSDKBridge {
     }
 
     /**
+     * Returns the existing daemon bridge without starting a process.
+     * Process inspection must recognize live Codex daemons before scanning for orphans.
+     *
+     * @return retained daemon bridge, or null if none has been created
+     */
+    public DaemonBridge getCurrentDaemonBridgeForInspection() {
+        return this.daemonCoordinator.getCurrentDaemonBridge();
+    }
+
+    /** Stop only the app-server daemon, keeping session registries intact. */
+    public void shutdownDaemon() {
+        this.daemonCoordinator.shutdownDaemon();
+    }
+
+    /**
      * Stop the Codex daemon and release its app-server child.
      *
      * <p>The daemon owns the native writer and interaction registries, so

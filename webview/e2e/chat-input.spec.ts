@@ -999,6 +999,61 @@ test('Codex reported empty reasoning leaves no cards or batch gaps in full and p
   await page.screenshot({ path: `../.workflow/thinking-empty-followup-history-${testInfo.project.name}.png` });
 });
 
+for (const fixtureName of ['codex-reloaded-tool-batch', 'codex-interrupted-command-history']) {
+  test(`Codex legacy tool batches keep one card per command across reload and history prepend: ${fixtureName}`, async ({ page }, testInfo) => {
+    const fixture = JSON.parse(readFileSync(new URL(`./fixtures/${fixtureName}.json`, import.meta.url), 'utf8')) as {
+      expectedToolCount: number;
+      expectedFailedCount?: number;
+      finalText?: string;
+      messages: Array<{ type: string; content: string; raw: { codexThreadId: string } }>;
+    };
+    const { messages, expectedToolCount } = fixture;
+    const sessionId = messages[0].raw.codexThreadId;
+    await switchToCodex(page);
+    await page.evaluate(({ sessionId, messages }) => {
+      window.setSessionId?.(sessionId);
+      window.updateMessages?.(JSON.stringify(messages));
+    }, { sessionId, messages });
+    const assertContinuousBatch = async () => {
+      await expect(page.locator('.message.assistant')).toHaveCount(1);
+      await expect(page.locator('.thinking-block')).toHaveCount(0);
+      await expect(page.getByText(`Batch Run Commands (${expectedToolCount})`, { exact: true })).toBeVisible();
+      await expect(page.locator('.bash-timeline-item')).toHaveCount(expectedToolCount);
+      await expect(page.locator('.tool-status-indicator.pending')).toHaveCount(0);
+      await expect(page.locator('.tool-status-indicator.error')).toHaveCount(fixture.expectedFailedCount ?? 0);
+      await expect(page.getByText('exec', { exact: true })).toHaveCount(0);
+      await expect(page.getByText(fixture.finalText ?? 'Verified history grouping.', { exact: true })).toBeVisible();
+    };
+    await assertContinuousBatch();
+    await page.reload();
+    await switchToCodex(page);
+    await page.evaluate(({ sessionId, messages }) => {
+      window.setSessionId?.(sessionId);
+      window.beginCodexHistoryPage?.(JSON.stringify({ pageId: 'legacy-batch-reload', sessionId, mode: 'replace' }));
+      window.appendCodexHistoryPageBatch?.('legacy-batch-reload', JSON.stringify(messages));
+      window.completeCodexHistoryPage?.(JSON.stringify({ pageId: 'legacy-batch-reload', sessionId, mode: 'replace',
+        source: 'legacy', fromTurn: 0, toTurn: 1, totalTurns: 1, hasMore: false, loadedMessageCount: messages.length }));
+    }, { sessionId, messages });
+    await assertContinuousBatch();
+    await page.evaluate(({ sessionId, messages }) => {
+      window.beginCodexHistoryPage?.(JSON.stringify({ pageId: 'legacy-batch-tail', sessionId, mode: 'replace' }));
+      window.appendCodexHistoryPageBatch?.('legacy-batch-tail', JSON.stringify(messages.slice(-1)));
+      window.completeCodexHistoryPage?.(JSON.stringify({ pageId: 'legacy-batch-tail', sessionId, mode: 'replace',
+        source: 'legacy', fromTurn: 1, toTurn: 1, totalTurns: 1, hasMore: true, loadedMessageCount: 1 }));
+    }, { sessionId, messages });
+    await expect(page.locator('.bash-timeline-item')).toHaveCount(0);
+    await page.evaluate(({ sessionId, messages }) => {
+      window.beginCodexHistoryPage?.(JSON.stringify({ pageId: 'legacy-batch-older', sessionId, mode: 'prepend' }));
+      window.appendCodexHistoryPageBatch?.('legacy-batch-older', JSON.stringify(messages));
+      window.completeCodexHistoryPage?.(JSON.stringify({ pageId: 'legacy-batch-older', sessionId, mode: 'prepend',
+        source: 'legacy', fromTurn: 0, toTurn: 1, totalTurns: 1, hasMore: false, loadedMessageCount: messages.length }));
+    }, { sessionId, messages });
+    await assertContinuousBatch();
+    expect(await sentMessages(page)).toEqual([]);
+    await page.screenshot({ path: `../.workflow/${fixtureName}-${testInfo.project.name}.png` });
+  });
+}
+
 test('Codex streamed reasoning survives an empty native completion from the real service trace', async ({ page }, testInfo) => {
   type NativeRawMessage = {
     type: string; uuid?: string; codexItemType?: string;

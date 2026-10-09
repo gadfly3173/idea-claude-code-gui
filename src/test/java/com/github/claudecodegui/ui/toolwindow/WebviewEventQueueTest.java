@@ -545,6 +545,80 @@ public class WebviewEventQueueTest {
         );
     }
 
+    /** Long history transfers must keep every slice while respecting script batch limits. */
+    @Test
+    public void deliversEveryHistorySlicePastTheRecoveryOverflowCeiling() {
+        List<Runnable> scheduled = new ArrayList<>();
+        List<String> scripts = new ArrayList<>();
+        WebviewEventQueue<Object> queue = newQueue(new AtomicReference<>(new Object()), new AtomicBoolean(), scheduled, scripts);
+        assertTrue(queue.enqueue("beginCodexHistoryPage", "page-start"));
+        for (int i = 0; i < 600; i++) {
+            String function = i % 2 == 0 ? "appendCodexHistoryPageBatch" : "appendCodexHistoryPageChunk";
+            assertTrue("history slice " + i, queue.enqueue(function, "page", "slice-" + i + ":" + "x".repeat(1000)));
+        }
+        assertTrue(queue.enqueue("completeCodexHistoryPage", "page-complete"));
+        assertTrue(queue.enqueue("onStreamEnd"));
+        while (!scheduled.isEmpty()) {
+            scheduled.remove(0).run();
+        }
+        String delivered = String.join("\n", scripts);
+        int previous = delivered.indexOf("window.beginCodexHistoryPage(");
+        for (int i = 0; i < 600; i++) {
+            int position = delivered.indexOf("'slice-" + i + ":");
+            assertTrue("ordered history slice " + i, position > previous);
+            previous = position;
+        }
+        assertTrue(previous < delivered.indexOf("window.completeCodexHistoryPage("));
+        assertTrue(delivered.indexOf("window.completeCodexHistoryPage(") < delivered.indexOf("window.onStreamEnd("));
+        assertTrue("large pages must still drain in several scripts", scripts.size() > 1);
+        assertTrue("history grouping must not make an oversized script", scripts.stream().allMatch(script -> script.length() < 300_000));
+        queue.dispose();
+    }
+
+    /** A failed history script must keep its grouped capacity and precede later callbacks. */
+    @Test
+    public void requeuesGroupedHistoryWithoutCrowdingOutLaterEvents() {
+        List<Runnable> scheduled = new ArrayList<>();
+        List<String> scripts = new ArrayList<>();
+        AtomicBoolean failFirstAttempt = new AtomicBoolean(true);
+        AtomicReference<WebviewEventQueue<Object>> queueReference = new AtomicReference<>();
+        Object browser = new Object();
+        WebviewEventQueue<Object> queue = new WebviewEventQueue<>(
+                () -> browser, () -> false, () -> 0, scheduled::add,
+                (ignoredBrowser, ignoredGeneration, script) -> {
+                    if (failFirstAttempt.getAndSet(false)) {
+                        for (int i = 0; i < 252; i++) {
+                            assertTrue(queueReference.get().enqueue("onTaskEvent", "task-" + i));
+                        }
+                        return false;
+                    }
+                    scripts.add(script);
+                    return true;
+                }, () -> true);
+        queueReference.set(queue);
+        queue.enqueue("beginCodexHistoryPage", "start");
+        for (int i = 0; i < 600; i++) {
+            assertTrue(queue.enqueue("appendCodexHistoryPageChunk", "page", "slice-" + i));
+        }
+        queue.enqueue("completeCodexHistoryPage", "complete");
+        scheduled.remove(0).run();
+        assertTrue("the retried page still occupies three entries", queue.enqueue("afterRetry"));
+        while (!scheduled.isEmpty()) {
+            scheduled.remove(0).run();
+        }
+        String delivered = String.join("\n", scripts);
+        int previous = delivered.indexOf("window.beginCodexHistoryPage(");
+        for (int i = 0; i < 600; i++) {
+            int position = delivered.indexOf("'slice-" + i + "'");
+            assertTrue("retried slice " + i, position > previous);
+            previous = position;
+        }
+        assertTrue(previous < delivered.indexOf("window.completeCodexHistoryPage("));
+        assertTrue(delivered.indexOf("window.completeCodexHistoryPage(") < delivered.indexOf("'task-0'"));
+        assertTrue(delivered.indexOf("'task-251'") < delivered.indexOf("window.afterRetry("));
+        queue.dispose();
+    }
+
     /**
      * The classification table decides how a call is merged and which of it may be
      * dropped, and every rule reads it through {@code hasClass}. A function that
@@ -595,5 +669,20 @@ public class WebviewEventQueueTest {
                 WebviewEventQueue.EVENT_CLASSES.get("onBlockReset"));
         assertEquals(EnumSet.of(WebviewEventQueue.EventClass.LIFECYCLE),
                 WebviewEventQueue.EVENT_CLASSES.get("onTaskEvent"));
+
+        // Boundaries protect the page; consecutive slices share a pending entry.
+        for (String codexPage : List.of("beginCodexHistoryPage", "completeCodexHistoryPage", "codexHistoryPageError")) {
+            assertEquals("codex history page call " + codexPage,
+                    EnumSet.of(WebviewEventQueue.EventClass.CRITICAL,
+                            WebviewEventQueue.EventClass.LIFECYCLE),
+                    WebviewEventQueue.EVENT_CLASSES.get(codexPage));
+        }
+        for (String codexAppend : List.of("appendCodexHistoryPageBatch", "appendCodexHistoryPageChunk")) {
+            assertEquals("codex history append " + codexAppend,
+                    EnumSet.of(WebviewEventQueue.EventClass.CRITICAL,
+                            WebviewEventQueue.EventClass.LIFECYCLE,
+                            WebviewEventQueue.EventClass.HISTORY_APPEND),
+                    WebviewEventQueue.EVENT_CLASSES.get(codexAppend));
+        }
     }
 }

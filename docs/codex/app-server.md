@@ -183,7 +183,7 @@ MCP form elicitation 会把 `requestedSchema.properties` 映射成带稳定字�
 
 会话展示行为：编辑账本独立读取全部原生 fileChange，checkpoint 以操作身份保存，删除/移动/EOF 与冲突撤销依据实际 patch；ImageView 的空终态可完成。Codex 文本使用完整 item 快照，agentMessage 的 text、content 数组或 content 字符串共用投影，结束时提交整个待处理列表；Guardian 目录按来源过滤并重建旧缓存。用户气泡共用 Claude 主题，单条/批次命令共用外层 shell 显示清理，纯轮询不创建卡片或分隔线。
 
-新会话在首轮原生 threadStarted 事件到达时，遵守现有开关和授权异步生成标题，不等待回合结束。辅助请求使用独立 app-server child，标题通过原生 thread/name/set 保存，手动名称优先。只有创建了线程才占用一次标题机会；bootstrap 失败后的立即重试或排队发送仍可生成标题。每次元信息读取与写入都校验主运行时仍为 ready 且 child 存活，辅助任务不会重启已崩溃或退役的 writer。释放、重置或启动配置变化会取消辅助请求；释放与重置等待所有待命名任务收尾。进程管理面板将 Codex daemon 登记为 DAEMON，孤儿清理保留其原生子进程；面板重启仅停止 daemon，Java 会话路由在下一次请求时继续使用。
+新会话在首轮原生 threadStarted 事件到达时，遵守现有开关和授权异步生成标题，不等待回合结束。辅助请求使用独立 app-server child，标题通过原生 thread/name/set 保存，手动名称优先。只有创建了线程才占用一次标题机会；bootstrap 失败后的立即重试或排队发送仍可生成标题。每次元信息读取与写入都校验主运行时仍为 ready 且 child 存活，辅助任务不会重启已崩溃或退役的 writer。释放、重置、回合中断或启动配置变化会取消辅助请求；释放与重置等待所有待命名任务收尾。进程管理面板将 Codex daemon 登记为 DAEMON，孤儿清理保留其原生子进程；面板重启仅停止 daemon，Java 会话路由在下一次请求时继续使用。
 
 输出片段不表示命令完成；明确终态及空的 MCP 结果仍会收尾。失败/中断只更新当前操作尚未结束的工具，已结束回合的运行时输出缓存会释放。异步批准预览以请求实例校验租约，原生 resolved 使旧回调失效，同一 RPC ID 后续使用不受旧回调影响。
 

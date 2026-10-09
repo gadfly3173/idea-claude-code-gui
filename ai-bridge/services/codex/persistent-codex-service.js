@@ -728,6 +728,9 @@ export async function codexAbortTurnPersistent(stdinData) {
   if (!service) {
     return { stopped: false, reason: 'no-runtime' };
   }
+  // The user asked this turn to stop, so its auxiliary naming work stops too;
+  // a lingering title child would otherwise keep an app-server process alive.
+  sessionServices.get(sessionKeyOf(stdinData))?.titleAbort?.abort();
   const activeId = service.activeOperationId;
   if (!activeId) {
     const queued = service.queue[0];

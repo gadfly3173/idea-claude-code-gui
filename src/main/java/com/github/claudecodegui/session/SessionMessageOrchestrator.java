@@ -542,7 +542,8 @@ public class SessionMessageOrchestrator {
             }
             boolean syntheticResult = live.type == ClaudeSession.Message.Type.USER && "[tool_result]".equals(live.content)
                     && MessageStructure.structuralBlockKeys(List.of(live)).stream().anyMatch(key -> key.startsWith("tool_result:"));
-            boolean carriesText = live.content != null && !live.content.isBlank() && !syntheticResult;
+            String text = historyTextContent(live);
+            boolean carriesText = !text.isBlank() && !syntheticResult;
             String thinking = historyThinkingContent(live);
             if (!carriesText && thinking.isEmpty()) {
                 continue;
@@ -550,9 +551,35 @@ public class SessionMessageOrchestrator {
             boolean matched = false;
             while (nextLoadedIndex < loadedMessages.size()) {
                 ClaudeSession.Message loaded = loadedMessages.get(nextLoadedIndex++);
-                if (loaded.type == live.type
-                        && (!carriesText || loaded.content != null && loaded.content.startsWith(live.content))
-                        && historyThinkingContent(loaded).startsWith(thinking)) {
+                if (loaded.type != live.type) {
+                    // Repeated wording in a later request cannot prove this reply was persisted.
+                    if (live.type == ClaudeSession.Message.Type.ASSISTANT
+                            && loaded.type == ClaudeSession.Message.Type.USER) {
+                        break;
+                    }
+                    continue;
+                }
+                StringBuilder loadedText = new StringBuilder(historyTextContent(loaded));
+                StringBuilder loadedThinking = new StringBuilder(historyThinkingContent(loaded));
+                // Automatic continuation changes API reply IDs within one live streaming row.
+                // Stop once this row is covered so later live rows retain their own history.
+                while (loaded.type == ClaudeSession.Message.Type.ASSISTANT && nextLoadedIndex < loadedMessages.size()
+                        && loadedMessages.get(nextLoadedIndex).type == ClaudeSession.Message.Type.ASSISTANT
+                        && (carriesText && !loadedText.toString().startsWith(text)
+                        || !loadedThinking.toString().startsWith(thinking))) {
+                    // An unrelated row must not consume the rows that could cover the live reply.
+                    String candidateText = loadedText.toString();
+                    String candidateThinking = loadedThinking.toString();
+                    if (carriesText && !text.startsWith(candidateText) && !candidateText.startsWith(text)
+                            || !thinking.startsWith(candidateThinking) && !candidateThinking.startsWith(thinking)) {
+                        break;
+                    }
+                    ClaudeSession.Message sibling = loadedMessages.get(nextLoadedIndex++);
+                    loadedText.append(historyTextContent(sibling));
+                    loadedThinking.append(historyThinkingContent(sibling));
+                }
+                if ((!carriesText || loadedText.toString().startsWith(text))
+                        && loadedThinking.toString().startsWith(thinking)) {
                     matched = true;
                     break;
                 }
@@ -562,6 +589,33 @@ public class SessionMessageOrchestrator {
             }
         }
         return true;
+    }
+
+    /** Compare raw text without display-only block separators, preserving embedded newlines. */
+    private static String historyTextContent(ClaudeSession.Message message) {
+        JsonArray blocks = MessageStructure.findContentArray(message.raw);
+        StringBuilder text = new StringBuilder();
+        if (blocks != null) {
+            for (JsonElement element : blocks) {
+                if (element.isJsonPrimitive() && element.getAsJsonPrimitive().isString()) {
+                    text.append(element.getAsString());
+                } else if (element.isJsonObject()) {
+                    JsonObject block = element.getAsJsonObject();
+                    if (block.has("type") && block.get("type").isJsonPrimitive()
+                            && "text".equals(block.get("type").getAsString())) {
+                        JsonElement body = block.get("text");
+                        if (body != null && body.isJsonPrimitive() && body.getAsJsonPrimitive().isString()) {
+                            text.append(body.getAsString());
+                        }
+                    }
+                }
+            }
+        }
+        if (text.length() > 0) {
+            return text.toString();
+        }
+        // Locally created rows and legacy payloads may carry only display text.
+        return message.content != null ? message.content : "";
     }
 
     /** Preserve streamed thinking too, since the display content contains only ordinary text. */
